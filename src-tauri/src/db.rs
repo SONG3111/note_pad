@@ -269,9 +269,6 @@ pub fn delete_note(conn: &Connection, id: &str) -> Result<(), String> {
     if n == 0 {
         return Err("便签不存在".into());
     }
-    // 级联清理该便签下的待办条目,避免孤儿数据
-    conn.execute("DELETE FROM todo_items WHERE note_id = ?1", params![id])
-        .map_err(|e| e.to_string())?;
     Ok(())
 }
 

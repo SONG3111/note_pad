@@ -109,20 +109,14 @@ export const useNotesStore = defineStore("notes", () => {
   async function togglePin(id: string) {
     const note = find(id);
     if (!note) return;
-    const next = !note.pinned;
-    try {
-      const updated = await invoke<NoteWithItems>("update_note", {
-        id,
-        input: { pinned: next },
-      });
-      applyUpdate(updated);
-      // 置顶状态变化时重排:置顶的提前
-      notes.value.sort((a, b) => Number(b.pinned) - Number(a.pinned));
-    } catch (e) {
-      // 失败回滚本地乐观状态
-      note.pinned = !next;
-      throw e;
-    }
+    note.pinned = !note.pinned;
+    const updated = await invoke<NoteWithItems>("update_note", {
+      id,
+      input: { pinned: note.pinned },
+    });
+    // 置顶状态变化时重排:置顶的提前
+    applyUpdate(updated);
+    notes.value.sort((a, b) => Number(b.pinned) - Number(a.pinned));
   }
 
   async function addItem(noteId: string, text: string) {

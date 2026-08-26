@@ -1,10 +1,9 @@
 ﻿<script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useNotesStore } from "./stores/notes";
-import { useNoteDraft } from "./composables/useNoteEditor";
 import { NOTE_COLORS, type NoteWithItems, type TodoItem } from "./types";
 import TodoCheckbox from "./components/TodoCheckbox.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
@@ -15,6 +14,9 @@ const noteId = label.replace(/^note-/, "");
 
 const store = useNotesStore();
 const note = ref<NoteWithItems | null>(null);
+const title = ref("");
+const content = ref("");
+const color = ref<string | null>(null);
 const items = ref<TodoItem[]>([]);
 const onTop = ref(false);
 const newItemText = ref("");
@@ -22,36 +24,62 @@ const confirmDelete = ref(false);
 const missing = ref(false);
 let unlistenChanged: UnlistenFn | null = null;
 
-const draft = useNoteDraft(async (patch) => {
-  const updated = await invoke<NoteWithItems | null>("update_note", {
-    id: noteId,
-    input: patch,
-  }).catch(() => null);
-  if (updated) items.value = updated.items;
-});
-const { title, content, color } = draft;
-
 onMounted(async () => {
   const loaded = await store.loadNote(noteId);
   if (!loaded) {
     missing.value = true;
     return;
   }
-  draft.load(loaded);
+  applyLoaded(loaded);
 
   // 其他窗口修改了这条便签 → 同步到本窗口(本地有未保存修改时以本窗口为准)
   unlistenChanged = await listen<string>("notes-changed", async (e) => {
-    if (e.payload !== noteId || !note.value || draft.isDirty()) return;
+    if (e.payload !== noteId || !note.value || dirty) return;
     const fresh = await store.loadNote(noteId);
     if (!fresh) {
       missing.value = true;
       return;
     }
-    note.value = fresh;
-    draft.load(fresh);
-    items.value = fresh.items;
+    applyLoaded(fresh);
   });
 });
+
+function applyLoaded(loaded: NoteWithItems) {
+  note.value = loaded;
+  title.value = loaded.title ?? "";
+  content.value = loaded.content ?? "";
+  color.value = loaded.color;
+  items.value = loaded.items;
+}
+
+let saveTimer: number | undefined;
+let dirty = false;
+
+watch([title, content, color], () => {
+  dirty = true;
+  window.clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(flushSave, 600);
+});
+
+async function flushSave() {
+  if (!dirty || !note.value) return;
+  dirty = false;
+  const updated = await invoke<NoteWithItems | null>("update_note", {
+    id: noteId,
+    input: {
+      title: title.value.trim() === "" ? null : title.value,
+      content: content.value.trim() === "" ? null : content.value,
+      color: color.value ?? null,
+    },
+  }).catch(() => null);
+  if (updated) items.value = updated.items;
+}
+
+function isEmptyState(): boolean {
+  const hasText =
+    title.value.trim() !== "" || (note.value?.type === "note" && content.value.trim() !== "");
+  return !hasText && items.value.length === 0;
+}
 
 async function togglePin() {
   const next = !onTop.value;
@@ -112,9 +140,9 @@ async function doDelete() {
 }
 
 async function closeWindow() {
-  draft.flush();
+  flushSave();
   // 与主界面行为一致:全空的内容关闭即清理
-  if (draft.isEmptyState(isTodo.value, items.value.length)) {
+  if (isEmptyState()) {
     try {
       await invoke("delete_note", { id: noteId });
     } catch {}
@@ -128,7 +156,8 @@ function onKeydown(e: KeyboardEvent) {
 onMounted(() => window.addEventListener("keydown", onKeydown));
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeydown);
-  draft.flush();
+  window.clearTimeout(saveTimer);
+  flushSave();
   unlistenChanged?.();
 });
 

@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from "vue";
+import { ref, watch, onMounted, onBeforeUnmount } from "vue";
 import { NOTE_COLORS, type NoteWithItems } from "../types";
 import TodoCheckbox from "./TodoCheckbox.vue";
-import { useNoteDraft } from "../composables/useNoteEditor";
 
 const props = defineProps<{ note: NoteWithItems }>();
 
@@ -17,11 +16,39 @@ const emit = defineEmits<{
   removeItem: [itemId: string];
 }>();
 
-const draft = useNoteDraft((patch) => emit("save", patch));
-draft.load(props.note);
-
-const { title, content, color } = draft;
+const title = ref(props.note.title ?? "");
+const content = ref(props.note.content ?? "");
+const color = ref(props.note.color);
 const newItemText = ref("");
+
+let saveTimer: number | undefined;
+let dirty = false;
+
+watch([title, content, color], () => {
+  dirty = true;
+  scheduleSave();
+});
+
+function scheduleSave() {
+  window.clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(flushSave, 600);
+}
+
+function flushSave() {
+  if (!dirty) return;
+  dirty = false;
+  emit("save", {
+    title: title.value.trim() === "" ? null : title.value,
+    content: content.value.trim() === "" ? null : content.value,
+    color: color.value ?? null,
+  });
+}
+
+function isEmptyState(): boolean {
+  const hasText =
+    title.value.trim() !== "" || (props.note.type === "note" && content.value.trim() !== "");
+  return !hasText && props.note.items.length === 0;
+}
 
 function addOnEnter() {
   const t = newItemText.value.trim();
@@ -39,11 +66,15 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === "Escape") close();
 }
 onMounted(() => window.addEventListener("keydown", onKeydown));
-onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKeydown);
+  window.clearTimeout(saveTimer);
+  flushSave();
+});
 
 function close() {
-  draft.flush();
-  emit("close", draft.isEmptyState(props.note.type === "note", props.note.items.length));
+  flushSave();
+  emit("close", isEmptyState());
 }
 </script>
 
