@@ -1,6 +1,8 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useNotesStore } from "./stores/notes";
 import { NOTE_COLORS, type NoteWithItems, type TodoItem } from "./types";
 import TodoCheckbox from "./components/TodoCheckbox.vue";
@@ -20,6 +22,7 @@ const onTop = ref(false);
 const newItemText = ref("");
 const confirmDelete = ref(false);
 const missing = ref(false);
+let unlistenChanged: UnlistenFn | null = null;
 
 onMounted(async () => {
   const loaded = await store.loadNote(noteId);
@@ -27,12 +30,27 @@ onMounted(async () => {
     missing.value = true;
     return;
   }
+  applyLoaded(loaded);
+
+  // 其他窗口修改了这条便签 → 同步到本窗口(本地有未保存修改时以本窗口为准)
+  unlistenChanged = await listen<string>("notes-changed", async (e) => {
+    if (e.payload !== noteId || !note.value || dirty) return;
+    const fresh = await store.loadNote(noteId);
+    if (!fresh) {
+      missing.value = true;
+      return;
+    }
+    applyLoaded(fresh);
+  });
+});
+
+function applyLoaded(loaded: NoteWithItems) {
   note.value = loaded;
   title.value = loaded.title ?? "";
   content.value = loaded.content ?? "";
   color.value = loaded.color;
   items.value = loaded.items;
-});
+}
 
 let saveTimer: number | undefined;
 let dirty = false;
@@ -46,36 +64,27 @@ watch([title, content, color], () => {
 async function flushSave() {
   if (!dirty || !note.value) return;
   dirty = false;
-  const updated = await invokeUpdate({
-    title: title.value.trim() === "" ? null : title.value,
-    content: content.value.trim() === "" ? null : content.value,
-    color: color.value ?? null,
-  });
-  if (updated) applyUpdated(updated);
+  const updated = await invoke<NoteWithItems | null>("update_note", {
+    id: noteId,
+    input: {
+      title: title.value.trim() === "" ? null : title.value,
+      content: content.value.trim() === "" ? null : content.value,
+      color: color.value ?? null,
+    },
+  }).catch(() => null);
+  if (updated) items.value = updated.items;
 }
 
-async function invokeUpdate(patch: Record<string, unknown>): Promise<NoteWithItems | null> {
-  try {
-    return await (await import("@tauri-apps/api/core")).invoke<NoteWithItems>("update_note", {
-      id: noteId,
-      input: patch,
-    });
-  } catch {
-    return null;
-  }
-}
-
-function applyUpdated(updated: NoteWithItems) {
-  items.value = updated.items;
+function isEmptyState(): boolean {
+  const hasText =
+    title.value.trim() !== "" || (note.value?.type === "note" && content.value.trim() !== "");
+  return !hasText && items.value.length === 0;
 }
 
 async function togglePin() {
   const next = !onTop.value;
   try {
-    await (await import("@tauri-apps/api/core")).invoke("set_window_on_top", {
-      label,
-      top: next,
-    });
+    await invoke("set_window_on_top", { label, top: next });
     onTop.value = next;
   } catch {}
 }
@@ -84,10 +93,7 @@ async function addOnEnter() {
   const t = newItemText.value.trim();
   if (!t) return;
   try {
-    const item = await (await import("@tauri-apps/api/core")).invoke<TodoItem>("add_todo_item", {
-      noteId,
-      text: t,
-    });
+    const item = await invoke<TodoItem>("add_todo_item", { noteId, text: t });
     items.value.push(item);
     newItemText.value = "";
   } catch {}
@@ -95,7 +101,7 @@ async function addOnEnter() {
 
 async function toggleItem(itemId: string, checked: boolean) {
   try {
-    const item = await (await import("@tauri-apps/api/core")).invoke<TodoItem>("update_todo_item", {
+    const item = await invoke<TodoItem>("update_todo_item", {
       id: itemId,
       text: null,
       checked,
@@ -106,8 +112,9 @@ async function toggleItem(itemId: string, checked: boolean) {
 }
 
 async function updateItemText(itemId: string, text: string) {
+  if (!text) return;
   try {
-    const item = await (await import("@tauri-apps/api/core")).invoke<TodoItem>("update_todo_item", {
+    const item = await invoke<TodoItem>("update_todo_item", {
       id: itemId,
       text,
       checked: null,
@@ -119,7 +126,7 @@ async function updateItemText(itemId: string, text: string) {
 
 async function removeItem(itemId: string) {
   try {
-    await (await import("@tauri-apps/api/core")).invoke("delete_todo_item", { id: itemId });
+    await invoke("delete_todo_item", { id: itemId });
     items.value = items.value.filter((i) => i.id !== itemId);
   } catch {}
 }
@@ -127,13 +134,19 @@ async function removeItem(itemId: string) {
 async function doDelete() {
   confirmDelete.value = false;
   try {
-    await (await import("@tauri-apps/api/core")).invoke("delete_note", { id: noteId });
+    await invoke("delete_note", { id: noteId });
     appWindow.close();
   } catch {}
 }
 
-function closeWindow() {
+async function closeWindow() {
   flushSave();
+  // 与主界面行为一致:全空的内容关闭即清理
+  if (isEmptyState()) {
+    try {
+      await invoke("delete_note", { id: noteId });
+    } catch {}
+  }
   appWindow.close();
 }
 
@@ -141,11 +154,16 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === "Escape") closeWindow();
 }
 onMounted(() => window.addEventListener("keydown", onKeydown));
-onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKeydown);
+  window.clearTimeout(saveTimer);
+  flushSave();
+  unlistenChanged?.();
+});
 
 const isTodo = computed(() => note.value?.type === "todo");
 const doneCount = computed(() => items.value.filter((i) => i.checked).length);
-const totalCount = computed(() => items.value.length);
+const pendingCount = computed(() => items.value.length - doneCount.value);
 const progress = computed(() =>
   items.value.length === 0 ? 0 : Math.round((doneCount.value / items.value.length) * 100)
 );
@@ -194,11 +212,16 @@ const progress = computed(() =>
         <div class="scroll-area">
           <div class="todo-stats">
             <div class="stats-bar"><div class="stats-fill" :style="{ width: progress + '%' }"></div></div>
-            <span class="stats-text">{{ doneCount }}/{{ totalCount }}</span>
+            <span class="stats-text">完成 {{ doneCount }} · 待完成 {{ pendingCount }}</span>
           </div>
           <div v-for="item in items" :key="item.id" class="item-row">
             <TodoCheckbox :checked="item.checked" @change="toggleItem(item.id, !item.checked)" />
-            <input class="item-text" :class="{ done: item.checked }" :value="item.text" @blur="(e) => updateItemText(item.id, (e.target as HTMLInputElement).value.trim())" />
+            <input
+              class="item-text"
+              :class="{ done: item.checked }"
+              :value="item.text"
+              @blur="(e) => updateItemText(item.id, (e.target as HTMLInputElement).value.trim())"
+            />
             <button class="row-del" title="删除此项" @click="removeItem(item.id)">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
             </button>
@@ -239,9 +262,6 @@ html, body, #app {
 </style>
 
 <style scoped>
-:root, .nwin {
-  font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
-}
 .nwin {
   display: flex;
   flex-direction: column;
@@ -253,8 +273,10 @@ html, body, #app {
   box-shadow:
     inset 0 0 0 1px rgba(0, 0, 0, 0.08),
     0 6px 24px -8px rgba(45, 55, 72, 0.35);
+  font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
 }
 .bar {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -307,16 +329,8 @@ html, body, #app {
   overflow: hidden;
   min-height: 0;
 }
-.scroll-area {
-  flex: 1;
-  overflow-y: auto;
-  min-height: 0;
-  scrollbar-width: none;
-}
-.scroll-area::-webkit-scrollbar {
-  display: none;
-}
 .title-input {
+  flex: none;
   border: none;
   outline: none;
   background: transparent;
@@ -327,7 +341,7 @@ html, body, #app {
 }
 .content-input {
   flex: 1;
-  min-height: 200px;
+  min-height: 160px;
   border: none;
   outline: none;
   background: transparent;
@@ -343,6 +357,15 @@ html, body, #app {
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+.scroll-area {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  scrollbar-width: none;
+}
+.scroll-area::-webkit-scrollbar {
+  display: none;
 }
 .todo-stats {
   display: flex;
@@ -377,6 +400,7 @@ html, body, #app {
 .item-row :deep(.cb-wrap) { flex: none; }
 .item-text {
   flex: 1;
+  min-width: 0;
   border: none;
   outline: none;
   background: transparent;
@@ -398,10 +422,13 @@ html, body, #app {
   border-radius: 6px;
   display: grid;
   place-items: center;
-  transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease,
+    background-color 0.15s ease;
 }
 .item-row:hover .row-del { opacity: 1; }
-.row-del:hover { color: #e53e3e; background: rgba(229,62,62,.08); }
+.row-del:hover { color: #e53e3e; background: rgba(229, 62, 62, 0.08); }
 .new-item {
   width: 100%;
   flex: none;

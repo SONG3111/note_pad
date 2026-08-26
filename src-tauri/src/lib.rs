@@ -72,7 +72,6 @@ async fn detach_note_window(
         }
         dock::register(label);
     }
-    let _ = app.emit("note-detached", &id);
     Ok(())
 }
 

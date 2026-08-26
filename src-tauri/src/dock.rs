@@ -87,16 +87,6 @@ pub fn request_show(label: &str) {
         .insert(label.to_string());
 }
 
-/// 主窗口是否处于停靠态(供外部查询,当前未用但保留调试口)
-pub fn is_docked(label: &str) -> bool {
-    registry()
-        .lock()
-        .unwrap()
-        .get(label)
-        .map(|s| s.edge.is_some())
-        .unwrap_or(false)
-}
-
 pub fn spawn(app: AppHandle) {
     register("main".to_string());
     std::thread::spawn(move || loop {
@@ -118,7 +108,9 @@ fn tick_all(app: &AppHandle) -> tauri::Result<Duration> {
             unregister(&label);
             continue;
         }
-        let forced = force_set().lock().unwrap().remove(&label);
+        // 只窥探不移除:等 tick_docked 真正消费时才清除,
+        // 避免窗口隐藏/最小化期间早退导致唤出请求丢失
+        let forced = force_set().lock().unwrap().contains(&label);
         let mut st = registry().lock().unwrap();
         let Some(state) = st.get_mut(&label) else { continue };
         let nap = tick_window(app, &label, state, forced)?;
@@ -240,7 +232,7 @@ fn targets(edge: Edge, mon: Rect, px: f64, py: f64, w: f64, h: f64, shown: bool)
 fn tick_docked(
     app: &AppHandle,
     win: &WebviewWindow,
-    _label: &str,
+    label: &str,
     st: &mut WinState,
     edge: Edge,
     forced: bool,
@@ -280,6 +272,8 @@ fn tick_docked(
     if forced {
         st.want_show = true;
         st.force_until_hover = true;
+        // 实际消费,避免重复触发
+        force_set().lock().unwrap().remove(label);
     }
 
     let (cx, cy) = app

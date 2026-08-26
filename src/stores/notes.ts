@@ -10,7 +10,7 @@ export const useNotesStore = defineStore("notes", () => {
   const loading = ref(false);
   const searchQuery = ref("");
   const viewFilter = ref<ViewFilter>("all");
-  // 待办卡片的展开状态(id -> 是否展开),未记录的默认展开
+  // 待办卡片的展开状态(id -> 是否展开),未记录的默认收起
   const expandedMap = ref<Record<string, boolean>>({});
 
   function isExpanded(id: string): boolean {
@@ -64,6 +64,16 @@ export const useNotesStore = defineStore("notes", () => {
       return await invoke<NoteWithItems>("get_note", { id });
     } catch {
       return null;
+    }
+  }
+
+  /// 接收其他窗口的变更:拉取最新数据合并;笔记已被删除则从列表移除
+  async function refreshNote(id: string) {
+    try {
+      const updated = await invoke<NoteWithItems>("get_note", { id });
+      applyUpdate(updated);
+    } catch {
+      notes.value = notes.value.filter((n) => n.id !== id);
     }
   }
 
@@ -143,6 +153,7 @@ export const useNotesStore = defineStore("notes", () => {
     setExpanded,
     load,
     loadNote,
+    refreshNote,
     create,
     save,
     remove,

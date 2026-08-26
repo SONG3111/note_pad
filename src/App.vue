@@ -38,6 +38,10 @@ onMounted(async () => {
     detached.value = new Set(detached.value);
     store.load();
   });
+  // 任意窗口的数据变更 → 拉取合并,保证多窗口数据一致
+  await listen<string>("notes-changed", (e) => {
+    store.refreshNote(e.payload);
+  });
 });
 
 onBeforeUnmount(() => unlistenClosed?.());
@@ -65,8 +69,9 @@ const filters: Array<{ key: ViewFilter; label: string }> = [
 ];
 
 function countOf(key: ViewFilter): number {
-  if (key === "all") return store.notes.length;
-  return store.notes.filter((n) => n.type === key).length;
+  const pool = allNotes.value.filter((n) => !detached.value.has(n.id));
+  if (key === "all") return pool.length;
+  return pool.filter((n) => n.type === key).length;
 }
 
 const emptyHint = computed(() => {
