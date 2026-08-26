@@ -16,6 +16,13 @@ const { visible: visibleNotes, notes: allNotes, loading, searchQuery, viewFilter
 const editingId = ref<string | null>(null);
 const appWindow = getCurrentWindow();
 
+// 悬浮新建:平时收敛为右下角"＋",展开后弹出双类型胶囊;保留按页签智能显隐(待办页只给便签入口,反之亦然)
+const fabOpen = ref(false);
+async function fabCreate(type: "note" | "todo") {
+  fabOpen.value = false;
+  await newNote(type);
+}
+
 // 已拖出为独立窗口的便签 id,从主界面列表暂时隐藏
 const detached = ref<Set<string>>(new Set());
 let unlistenClosed: UnlistenFn | null = null;
@@ -163,17 +170,6 @@ function closeEditor(isEmpty?: boolean) {
       </div>
     </div>
 
-    <div class="create-row">
-      <button v-if="viewFilter !== 'note'" class="btn todo" @click="newNote('todo')">
-        <svg class="plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-        待办
-      </button>
-      <button v-if="viewFilter !== 'todo'" class="btn note" @click="newNote('note')">
-        <svg class="plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-        便签
-      </button>
-    </div>
-
     <main class="board">
       <p v-if="loading" class="empty">加载中…</p>
       <p v-else-if="boardNotes.length === 0" class="empty">
@@ -216,6 +212,16 @@ function closeEditor(isEmpty?: boolean) {
       </div>
     </main>
 
+    <!-- 悬浮新建区:透明幕布承接"点空白处收起",胶囊带错峰弹出动画 -->
+    <div v-if="fabOpen" class="fab-backdrop" @click="fabOpen = false"></div>
+    <div class="fab-area" :class="{ open: fabOpen }">
+      <button v-if="viewFilter !== 'note'" class="fab-opt todo" @click="fabCreate('todo')">＋ 待办</button>
+      <button v-if="viewFilter !== 'todo'" class="fab-opt note" @click="fabCreate('note')">＋ 便签</button>
+      <button class="fab-main" :title="fabOpen ? '收起' : '新建'" aria-label="新建" @click="fabOpen = !fabOpen">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
+
     <ConfirmDialog
       :open="confirmId !== null"
       message="删除后无法恢复,确定要删除这条记录吗?"
@@ -241,6 +247,7 @@ html, body, #app { margin: 0; height: 100%; }
   display: flex;
   flex-direction: column;
   height: 100vh;
+  position: relative;
 }
 
 .topbar {
@@ -284,13 +291,14 @@ html, body, #app { margin: 0; height: 100%; }
 
 .toolbar {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 10px;
   padding: 10px 14px 0;
   background: #fff;
 }
 .tabs {
   display: flex;
+  align-self: flex-start;
   gap: 4px;
   background: #edf2f7;
   padding: 3px;
@@ -326,7 +334,7 @@ html, body, #app { margin: 0; height: 100%; }
 }
 .search-icon {
   position: absolute;
-  left: 12px;
+  left: 14px;
   top: 50%;
   transform: translateY(-50%);
   width: 14px;
@@ -337,8 +345,9 @@ html, body, #app { margin: 0; height: 100%; }
 .search {
   width: 100%;
   border: 1.5px solid #d5e0ec;
-  border-radius: 10px;
-  padding: 9px 14px 9px 34px;
+  /* 胶囊形(半圆端):padding 左右相应加大,避开弧边压迫文字 */
+  border-radius: 999px;
+  padding: 9px 16px 9px 38px;
   font-size: 13.5px;
   background: #f7fafc;
   outline: none;
@@ -356,68 +365,11 @@ html, body, #app { margin: 0; height: 100%; }
   box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.15);
 }
 
-.create-row {
-  display: flex;
-  gap: 8px;
-  padding: 10px 14px;
-  background: #fff;
-  border-bottom: 1px solid #edf2f7;
-}
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  flex: 1;
-  border: none;
-  border-radius: 10px;
-  padding: 13px 0;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  color: #fff;
-  transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
-}
-.btn:focus-visible { outline: none; }
-.btn:active { transform: scale(0.96); }
-.btn .plus {
-  width: 13px;
-  height: 13px;
-  margin-top: -1px;
-}
-.btn.todo {
-  background: linear-gradient(270deg, #aef0d5 0%, #c8effb 100%);
-  color: #047857;
-  box-shadow: inset 0 0 0 1px rgba(4, 120, 87, 0.18);
-}
-.btn.todo:hover {
-  background: linear-gradient(270deg, #96e9cb 0%, #b2e7f9 100%);
-  box-shadow: inset 0 0 0 1px rgba(4, 120, 87, 0.3);
-}
-.btn.todo:focus-visible {
-  box-shadow:
-    inset 0 0 0 1px rgba(4, 120, 87, 0.3),
-    0 0 0 3px rgba(4, 120, 87, 0.2);
-}
-.btn.note {
-  background: linear-gradient(270deg, #e4d3fc 0%, #fce0ee 100%);
-  color: #6d28d9;
-  box-shadow: inset 0 0 0 1px rgba(109, 40, 217, 0.18);
-}
-.btn.note:hover {
-  background: linear-gradient(270deg, #d9c4fb 0%, #fbd0e5 100%);
-  box-shadow: inset 0 0 0 1px rgba(109, 40, 217, 0.3);
-}
-.btn.note:focus-visible {
-  box-shadow:
-    inset 0 0 0 1px rgba(109, 40, 217, 0.3),
-    0 0 0 3px rgba(109, 40, 217, 0.2);
-}
-
 .board {
   flex: 1;
   overflow-y: auto;
-  padding: 14px;
+  /* 底部预留 76px,避免最后一张卡片被悬浮新建按钮遮挡 */
+  padding: 14px 14px 76px;
   scrollbar-width: none;
 }
 .board::-webkit-scrollbar {
@@ -439,4 +391,89 @@ html, body, #app { margin: 0; height: 100%; }
   flex-direction: column;
   gap: 12px;
 }
+
+/* 悬浮新建:主按钮白底圆形,展开时"＋"旋转 45° 变"✕";
+   双胶囊白底彩描边,延续绿=待办/紫=便签的色彩语义,错峰弹出 */
+.fab-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+}
+.fab-area {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+.fab-main {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: #fff;
+  color: #2c3e50;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 6px 18px rgba(45, 55, 72, 0.18);
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
+}
+.fab-main:hover {
+  transform: scale(1.06);
+  box-shadow: 0 8px 22px rgba(45, 55, 72, 0.24);
+}
+.fab-main:active { transform: scale(0.94); }
+.fab-main svg {
+  transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+.fab-area.open .fab-main svg {
+  transform: rotate(45deg);
+}
+.fab-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  border-radius: 999px;
+  padding: 9px 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.95);
+  opacity: 0;
+  transform: translateY(12px) scale(0.85);
+  pointer-events: none;
+  transition:
+    opacity 0.16s ease,
+    transform 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2),
+    background-color 0.15s ease;
+}
+.fab-area.open .fab-opt {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+/* 便签胶囊比待办晚 50ms 弹出,收起时无延迟一起退场 */
+.fab-area.open .fab-opt.note {
+  transition-delay: 0.05s;
+}
+.fab-opt:active { transform: scale(0.94); }
+.fab-opt.todo {
+  color: #047857;
+  box-shadow:
+    inset 0 0 0 1.5px rgba(4, 120, 87, 0.35),
+    0 4px 14px rgba(45, 55, 72, 0.14);
+}
+.fab-opt.todo:hover { background: rgba(174, 240, 213, 0.45); }
+.fab-opt.note {
+  color: #6d28d9;
+  box-shadow:
+    inset 0 0 0 1.5px rgba(109, 40, 217, 0.3),
+    0 4px 14px rgba(45, 55, 72, 0.14);
+}
+.fab-opt.note:hover { background: rgba(228, 211, 252, 0.45); }
 </style>

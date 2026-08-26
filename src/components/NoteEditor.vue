@@ -158,17 +158,23 @@ function close() {
 
 .toolbar {
   display: flex;
+  /* nowrap:窄面板下也不允许两组按钮换行,始终同排 space-between;
+     负边距抵消面板内边距,使两组按钮分别顶在面板左右两侧 */
+  flex-flow: row nowrap;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  gap: 8px;
+  margin: 0 -14px 10px;
 }
 .colors {
   display: flex;
   gap: 6px;
+  min-width: 0;
 }
 .color-dot {
   width: 20px;
   height: 20px;
+  flex: none;
   border-radius: 50%;
   border: 2px solid #1a202c;
   cursor: pointer;
@@ -179,12 +185,13 @@ function close() {
   box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.45);
 }
 
-.tools { display: flex; gap: 6px; }
+.tools { display: flex; gap: 6px; min-width: 0; }
 .tool-btn {
   border: none;
   background: rgba(255, 255, 255, 0.7);
   width: 28px;
   height: 28px;
+  flex: none;
   border-radius: 7px;
   cursor: pointer;
   font-size: 13px;

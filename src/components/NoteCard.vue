@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { relativeTime, type NoteWithItems } from "../types";
 import TodoCheckbox from "./TodoCheckbox.vue";
 import { useNotesStore } from "../stores/notes";
@@ -57,6 +57,18 @@ const visibleItems = computed(() =>
 const doneCount = computed(() => props.note.items.filter((i) => i.checked).length);
 const totalCount = computed(() => props.note.items.length);
 const progress = computed(() => (totalCount.value === 0 ? 0 : Math.round((doneCount.value / totalCount.value) * 100)));
+
+// 全部完成:待办区轻轻脉动一下,与顶层庆祝动画呼应(编辑器里勾完最后一项时,卡片同样响应)
+const allDone = computed(() => totalCount.value >= 2 && doneCount.value === totalCount.value);
+const pop = ref(false);
+let popTimer: number | undefined;
+watch(allDone, (v, was) => {
+  if (v && !was) {
+    pop.value = true;
+    window.clearTimeout(popTimer);
+    popTimer = window.setTimeout(() => (pop.value = false), 450);
+  }
+});
 </script>
 
 <template>
@@ -84,7 +96,7 @@ const progress = computed(() => (totalCount.value === 0 ? 0 : Math.round((doneCo
     <h3 v-if="note.title" class="title" :title="note.title">{{ note.title }}</h3>
     <p v-if="note.type === 'note' && note.content" class="content">{{ note.content }}</p>
 
-    <div v-if="note.type === 'todo'" class="todo-area">
+    <div v-if="note.type === 'todo'" class="todo-area" :class="{ pop }">
       <div v-for="item in visibleItems" :key="item.id" class="todo-row">
         <TodoCheckbox :checked="item.checked" @change="emit('toggleItem', item.id, !item.checked)" />
         <span class="todo-text" :class="{ done: item.checked }">{{ item.text }}</span>
@@ -212,6 +224,14 @@ const progress = computed(() => (totalCount.value === 0 ? 0 : Math.round((doneCo
 
 .todo-area {
   margin-top: 4px;
+}
+/* 全部完成:待办区集体轻微缩放脉冲 */
+.todo-area.pop {
+  animation: nc-todo-pop 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+@keyframes nc-todo-pop {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
 }
 .todo-row {
   display: flex;

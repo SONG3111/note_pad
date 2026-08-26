@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useNotesStore } from "./stores/notes";
 import { NOTE_COLORS, type NoteWithItems, type TodoItem } from "./types";
+import { celebrateAllDone } from "./celebrate";
 import TodoCheckbox from "./components/TodoCheckbox.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 
@@ -109,6 +110,16 @@ async function toggleItem(itemId: string, checked: boolean) {
     });
     const idx = items.value.findIndex((i) => i.id === itemId);
     if (idx >= 0) items.value[idx] = item;
+    // 全部完成庆祝:独立窗口不走 store,需在此独立检测(至少 2 项);
+    // 只播顶层庆祝动画,待办行本身不做缩放脉冲
+    if (
+      checked &&
+      note.value?.type === "todo" &&
+      items.value.length >= 2 &&
+      items.value.every((i) => i.checked)
+    ) {
+      celebrateAllDone();
+    }
   } catch {}
 }
 

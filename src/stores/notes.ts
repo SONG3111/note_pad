@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import type { NoteWithItems, NoteType, TodoItem } from "../types";
+import { celebrateAllDone } from "../celebrate";
 
 export type ViewFilter = "all" | "todo" | "note";
 
@@ -134,6 +135,16 @@ export const useNotesStore = defineStore("notes", () => {
     if (note) {
       const idx = note.items.findIndex((i) => i.id === itemId);
       if (idx >= 0) note.items[idx] = item;
+      // 全部完成庆祝:仅当"本次勾选"补齐了最后一项(至少 2 项)时触发,
+      // 主界面卡片勾选与编辑器勾选都走这条唯一入口,不会重复触发
+      if (
+        patch.checked &&
+        note.type === "todo" &&
+        note.items.length >= 2 &&
+        note.items.every((i) => i.checked)
+      ) {
+        celebrateAllDone();
+      }
     }
   }
 
