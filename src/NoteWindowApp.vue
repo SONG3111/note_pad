@@ -163,7 +163,6 @@ onBeforeUnmount(() => {
 
 const isTodo = computed(() => note.value?.type === "todo");
 const doneCount = computed(() => items.value.filter((i) => i.checked).length);
-const pendingCount = computed(() => items.value.length - doneCount.value);
 const progress = computed(() =>
   items.value.length === 0 ? 0 : Math.round((doneCount.value / items.value.length) * 100)
 );
@@ -212,7 +211,7 @@ const progress = computed(() =>
         <div class="scroll-area">
           <div class="todo-stats">
             <div class="stats-bar"><div class="stats-fill" :style="{ width: progress + '%' }"></div></div>
-            <span class="stats-text">完成 {{ doneCount }} · 待完成 {{ pendingCount }}</span>
+            <span class="stats-text">{{ doneCount }}/{{ items.length }}</span>
           </div>
           <div v-for="item in items" :key="item.id" class="item-row">
             <TodoCheckbox :checked="item.checked" @change="toggleItem(item.id, !item.checked)" />

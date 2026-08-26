@@ -21,6 +21,12 @@ let unlistenClosed: UnlistenFn | null = null;
 
 const boardNotes = computed(() => visibleNotes.value.filter((n) => !detached.value.has(n.id)));
 const boardTotal = computed(() => allNotes.value.filter((n) => !detached.value.has(n.id)).length);
+// 当前 tab 的基础池(未搜索过滤):用于区分「tab 本身没数据」和「搜索无匹配」
+const tabPool = computed(() =>
+  allNotes.value.filter(
+    (n) => !detached.value.has(n.id) && (viewFilter.value === "all" || n.type === viewFilter.value)
+  )
+);
 
 function hideToTray() {
   appWindow.hide();
@@ -152,9 +158,11 @@ function closeEditor(isEmpty?: boolean) {
 
     <main class="board">
       <p v-if="loading" class="empty">加载中…</p>
-      <p v-else-if="boardTotal === 0 && allNotes.length > 0" class="empty">便签已拖出为独立窗口<br /><span class="empty-hint">关闭对应窗口后会自动回到这里</span></p>
-      <p v-else-if="boardTotal === 0" class="empty">{{ emptyHint }}</p>
-      <p v-else-if="boardNotes.length === 0" class="empty">没有匹配「{{ searchQuery }}」的记录<br /><span class="empty-hint">换个关键词试试,或清空搜索查看全部</span></p>
+      <p v-else-if="tabPool.length === 0 && boardTotal === 0" class="empty">{{ emptyHint }}</p>
+      <p v-else-if="boardNotes.length === 0" class="empty">
+        {{ tabPool.length === 0 ? emptyHint : `没有匹配「${searchQuery}」的记录` }}
+        <br v-if="tabPool.length > 0" /><span v-if="tabPool.length > 0" class="empty-hint">换个关键词试试,或清空搜索查看全部</span>
+      </p>
 
       <div v-else class="list">
         <template v-for="note in boardNotes" :key="note.id">
