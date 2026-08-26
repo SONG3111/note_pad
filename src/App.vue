@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useNotesStore, type ViewFilter } from "./stores/notes";
+import type { NoteWithItems } from "./types";
 import NoteCard from "./components/NoteCard.vue";
 import NoteEditor from "./components/NoteEditor.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
@@ -18,15 +19,14 @@ const appWindow = getCurrentWindow();
 // 已拖出为独立窗口的便签 id,从主界面列表暂时隐藏
 const detached = ref<Set<string>>(new Set());
 let unlistenClosed: UnlistenFn | null = null;
+let unlistenQuickAdd: UnlistenFn | null = null;
+let unlistenChanged: UnlistenFn | null = null;
 
-const boardNotes = computed(() => visibleNotes.value.filter((n) => !detached.value.has(n.id)));
-const boardTotal = computed(() => allNotes.value.filter((n) => !detached.value.has(n.id)).length);
-// 当前 tab 的基础池(未搜索过滤):用于区分「tab 本身没数据」和「搜索无匹配」
-const tabPool = computed(() =>
-  allNotes.value.filter(
-    (n) => !detached.value.has(n.id) && (viewFilter.value === "all" || n.type === viewFilter.value)
-  )
-);
+const isSearching = computed(() => searchQuery.value.trim() !== "");
+// 搜索时也召回已拖出为独立窗口的便签(卡片会打角标,点击聚焦原窗口);
+// 非搜索态维持隐藏,避免与悬浮窗内容重复展示。列表与页签计数必须用同一规则
+const inBoard = (n: NoteWithItems) => isSearching.value || !detached.value.has(n.id);
+const boardNotes = computed(() => visibleNotes.value.filter(inBoard));
 
 function hideToTray() {
   appWindow.hide();
@@ -35,7 +35,7 @@ function hideToTray() {
 onMounted(async () => {
   await store.load();
   // 全局快捷键:Ctrl+Alt+T 快速待办 / Ctrl+Alt+N 快速便签
-  await listen<"todo" | "note">("quick-add", (e) => {
+  unlistenQuickAdd = await listen<"todo" | "note">("quick-add", (e) => {
     newNote(e.payload);
   });
   // 独立便签窗口关闭 → 恢复显示并刷新其最新内容
@@ -44,13 +44,19 @@ onMounted(async () => {
     detached.value = new Set(detached.value);
     store.load();
   });
-  // 任意窗口的数据变更 → 拉取合并,保证多窗口数据一致
-  await listen<string>("notes-changed", (e) => {
-    store.refreshNote(e.payload);
+  // 其他窗口的数据变更 → 拉取合并,保证多窗口数据一致;
+  // 主窗口自己发出的变更已本地应用,跳过回拉以减少 IPC 与数据库压力
+  unlistenChanged = await listen<{ id: string; source: string }>("notes-changed", (e) => {
+    if (e.payload.source === "main") return;
+    store.refreshNote(e.payload.id);
   });
 });
 
-onBeforeUnmount(() => unlistenClosed?.());
+onBeforeUnmount(() => {
+  unlistenClosed?.();
+  unlistenQuickAdd?.();
+  unlistenChanged?.();
+});
 
 async function detachNote(id: string, fromDrag: boolean) {
   if (editingId.value === id) editingId.value = null;
@@ -58,6 +64,18 @@ async function detachNote(id: string, fromDrag: boolean) {
     await invoke("detach_note_window", { id, drag: fromDrag });
     detached.value = new Set([...detached.value, id]);
   } catch {}
+}
+
+// 搜索结果中点击已独立的便签:聚焦已有独立窗口(若贴边隐藏则同时唤出),不重复开新窗也不进编辑器
+async function focusDetachedNote(id: string) {
+  try {
+    await invoke("detach_note_window", { id, drag: false });
+  } catch {}
+}
+
+function onEdit(note: NoteWithItems) {
+  if (detached.value.has(note.id)) focusDetachedNote(note.id);
+  else editingId.value = note.id;
 }
 
 async function newNote(type: "note" | "todo") {
@@ -75,7 +93,7 @@ const filters: Array<{ key: ViewFilter; label: string }> = [
 ];
 
 function countOf(key: ViewFilter): number {
-  const pool = allNotes.value.filter((n) => !detached.value.has(n.id));
+  const pool = allNotes.value.filter(inBoard);
   if (key === "all") return pool.length;
   return pool.filter((n) => n.type === key).length;
 }
@@ -158,17 +176,22 @@ function closeEditor(isEmpty?: boolean) {
 
     <main class="board">
       <p v-if="loading" class="empty">加载中…</p>
-      <p v-else-if="tabPool.length === 0 && boardTotal === 0" class="empty">{{ emptyHint }}</p>
       <p v-else-if="boardNotes.length === 0" class="empty">
-        {{ tabPool.length === 0 ? emptyHint : `没有匹配「${searchQuery}」的记录` }}
-        <br v-if="tabPool.length > 0" /><span v-if="tabPool.length > 0" class="empty-hint">换个关键词试试,或清空搜索查看全部</span>
+        <!-- 搜索中:永远给搜索反馈,而不是"暂无数据"的建导提示,
+             否则当前页签没数据但其他页签有数据时,提示语会误导用户 -->
+        <template v-if="isSearching">
+          没有匹配「{{ searchQuery }}」的记录
+          <br /><span class="empty-hint">换个关键词试试,或清空搜索查看全部</span>
+        </template>
+        <template v-else>{{ emptyHint }}</template>
       </p>
 
       <div v-else class="list">
         <template v-for="note in boardNotes" :key="note.id">
           <NoteCard
             :note="note"
-            @edit="editingId = note.id"
+            :detached="detached.has(note.id)"
+            @edit="onEdit(note)"
             @remove="removeNote(note.id)"
             @toggle-pin="store.togglePin(note.id)"
             @toggle-item="(itemId, checked) => store.updateItem(note.id, itemId, { checked })"

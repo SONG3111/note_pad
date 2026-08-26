@@ -32,9 +32,10 @@ onMounted(async () => {
   }
   applyLoaded(loaded);
 
-  // 其他窗口修改了这条便签 → 同步到本窗口(本地有未保存修改时以本窗口为准)
-  unlistenChanged = await listen<string>("notes-changed", async (e) => {
-    if (e.payload !== noteId || !note.value || dirty) return;
+  // 其他窗口修改了这条便签 → 同步到本窗口(本地有未保存修改时以本窗口为准);
+  // 本窗口发出的变更已本地应用,跳过回拉以减少 IPC 与数据库压力
+  unlistenChanged = await listen<{ id: string; source: string }>("notes-changed", async (e) => {
+    if (e.payload.id !== noteId || e.payload.source === label || !note.value || dirty) return;
     const fresh = await store.loadNote(noteId);
     if (!fresh) {
       missing.value = true;
@@ -140,7 +141,8 @@ async function doDelete() {
 }
 
 async function closeWindow() {
-  flushSave();
+  // 必须 await:否则 close() 会在保存完成前销毁窗口,丢失最后 600ms 内的输入
+  await flushSave();
   // 与主界面行为一致:全空的内容关闭即清理
   if (isEmptyState()) {
     try {

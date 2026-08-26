@@ -111,9 +111,30 @@ fn tick_all(app: &AppHandle) -> tauri::Result<Duration> {
         // 只窥探不移除:等 tick_docked 真正消费时才清除,
         // 避免窗口隐藏/最小化期间早退导致唤出请求丢失
         let forced = force_set().lock().unwrap().contains(&label);
-        let mut st = registry().lock().unwrap();
-        let Some(state) = st.get_mut(&label) else { continue };
-        let nap = tick_window(app, &label, state, forced)?;
+        // 关键:Tauri 的窗口查询在 Windows 上是同步跨线程往返(发消息给主线程并阻塞等回复)。
+        // 若持着 registry 锁做这些阻塞调用,一旦主线程此时需要同一把锁(如窗口销毁时注销),
+        // 两线程互相等待 → 整个应用卡死。因此先取状态快照并立即释放锁,
+        // 阻塞查询全部在无锁状态下进行,完成后再写回
+        let mut snapshot = {
+            let st = registry().lock().unwrap();
+            match st.get(&label) {
+                Some(s) => s.clone(),
+                None => continue,
+            }
+        };
+        // 单个窗口查询出错(如窗口正在销毁)只降级该窗口,不中断整轮循环,
+        // 否则排在后面的窗口本轮全部失去停靠管理,可能表现为功能静默失效
+        let nap = match tick_window(app, &label, &mut snapshot, forced) {
+            Ok(nap) => nap,
+            Err(_) => ms(300),
+        };
+        // 写回快照:若窗口在查询期间被注销则直接丢弃,不复活已移除的状态
+        {
+            let mut st = registry().lock().unwrap();
+            if st.contains_key(&label) {
+                st.insert(label.clone(), snapshot);
+            }
+        }
         if nap < min_nap {
             min_nap = nap;
         }
@@ -138,7 +159,13 @@ fn tick_window(app: &AppHandle, label: &str, st: &mut WinState, forced: bool) ->
     }
 
     match st.edge {
-        None => tick_floating(&win, st, label),
+        None => {
+            // 浮动状态下消费掉强制唤出请求,防止陈旧标记导致下次贴边停靠后意外展开
+            if forced {
+                force_set().lock().unwrap().remove(label);
+            }
+            tick_floating(&win, st, label)
+        }
         Some(edge) => tick_docked(app, &win, label, st, edge, forced),
     }
 }
@@ -163,7 +190,7 @@ fn tick_floating(win: &WebviewWindow, st: &mut WinState, label: &str) -> tauri::
     let w = size.width as f64;
 
     if st.last_set == Some((pos.x, pos.y)) {
-        return Ok(ms(120));
+        return Ok(ms(200));
     }
     st.last_set = None;
 
@@ -204,7 +231,7 @@ fn tick_floating(win: &WebviewWindow, st: &mut WinState, label: &str) -> tauri::
         },
         None => st.pending = None,
     }
-    Ok(ms(100))
+    Ok(ms(160))
 }
 
 fn targets(edge: Edge, mon: Rect, px: f64, py: f64, w: f64, h: f64, shown: bool) -> (f64, f64) {
@@ -320,7 +347,9 @@ fn tick_docked(
     let ny = (py + dy * LERP_K).round() as i32;
     win.set_position(PhysicalPosition::new(nx, ny))?;
     st.last_set = Some((nx, ny));
-    Ok(ms(16))
+    // 30ms 而非 16ms:动画依然流畅,但跨线程窗口操作频率近乎减半,
+    // 显著降低 Windows 主线程消息泵压力(多窗口时尤其明显)
+    Ok(ms(30))
 }
 
 fn undock(st: &mut WinState, win: &WebviewWindow) -> tauri::Result<()> {

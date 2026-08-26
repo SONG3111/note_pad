@@ -4,7 +4,7 @@ import { relativeTime, type NoteWithItems } from "../types";
 import TodoCheckbox from "./TodoCheckbox.vue";
 import { useNotesStore } from "../stores/notes";
 
-const props = defineProps<{ note: NoteWithItems }>();
+const props = defineProps<{ note: NoteWithItems; detached?: boolean }>();
 
 const emit = defineEmits<{
   edit: [];
@@ -61,6 +61,7 @@ const progress = computed(() => (totalCount.value === 0 ? 0 : Math.round((doneCo
 
 <template>
   <article class="card" :style="{ '--card-color': note.color ?? '#f6f7f9' }" @mousedown="onDown">
+    <span v-if="detached" class="win-badge" title="该记录已在独立窗口中打开,点击可聚焦该窗口">独立窗口中</span>
     <div class="card-top">
       <span v-if="note.pinned" class="pin-badge">📌</span>
       <div class="card-actions">
@@ -131,6 +132,18 @@ const progress = computed(() => (totalCount.value === 0 ? 0 : Math.round((doneCo
 }
 .pin-badge {
   font-size: 12px;
+}
+.win-badge {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  font-size: 10.5px;
+  color: #4a90d9;
+  background: rgba(74, 144, 217, 0.1);
+  border: 1px solid rgba(74, 144, 217, 0.35);
+  padding: 1px 7px;
+  border-radius: 999px;
+  pointer-events: none;
 }
 .card:hover .pin-badge {
   display: none;

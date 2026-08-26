@@ -2,7 +2,7 @@ mod db;
 #[cfg(desktop)]
 mod dock;
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -10,19 +10,34 @@ use db::{Db, NoteWithItems, TodoItem};
 
 type CmdResult<T> = Result<T, String>;
 
-fn with_conn<T>(state: &State<Db>, f: impl FnOnce(&rusqlite::Connection) -> CmdResult<T>) -> CmdResult<T> {
-    let conn = state.0.lock().map_err(|_| "数据库忙".to_string())?;
-    f(&conn)
+/// 在阻塞线程池执行数据库操作:主线程与异步运行时都不会被卡住。
+/// 锁被污染时返回友好错误而不是 panic。
+async fn with_conn<T, F>(db: Arc<Mutex<rusqlite::Connection>>, f: F) -> CmdResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce(&rusqlite::Connection) -> CmdResult<T> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = db.lock().map_err(|_| "数据库忙".to_string())?;
+        f(&conn)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 变更事件负载:携带来源窗口标签,接收方可跳过自己发出的变更,避免无谓回拉
+fn changed_payload(id: &str, source: &str) -> serde_json::Value {
+    serde_json::json!({ "id": id, "source": source })
 }
 
 #[tauri::command]
-fn list_notes(state: State<Db>) -> CmdResult<Vec<NoteWithItems>> {
-    with_conn(&state, |conn| db::list_notes(conn).map_err(|e| e.to_string()))
+async fn list_notes(state: State<'_, Db>) -> CmdResult<Vec<NoteWithItems>> {
+    with_conn(state.0.clone(), |conn| db::list_notes(conn).map_err(|e| e.to_string())).await
 }
 
 #[tauri::command]
-fn get_note(state: State<Db>, id: String) -> CmdResult<NoteWithItems> {
-    with_conn(&state, |conn| db::get_note(conn, &id).map_err(|e| e.to_string()))
+async fn get_note(state: State<'_, Db>, id: String) -> CmdResult<NoteWithItems> {
+    with_conn(state.0.clone(), move |conn| db::get_note(conn, &id).map_err(|e| e.to_string())).await
 }
 
 /// 把便签从主界面拖出为独立窗口:drag=true 表示来自拖拽手势(鼠标仍按住,可无缝续拖)
@@ -33,11 +48,15 @@ async fn detach_note_window(
     id: String,
     drag: Option<bool>,
 ) -> CmdResult<()> {
-    // 确认笔记存在
-    with_conn(&state, |conn| db::get_note(conn, &id).map_err(|e| e.to_string()))?;
+    // 确认笔记存在(阻塞操作放线程池,不占用异步运行时线程)
+    let check_id = id.clone();
+    with_conn(state.0.clone(), move |conn| db::get_note(conn, &check_id).map(|_| ()).map_err(|e| e.to_string())).await?;
 
     let label = format!("note-{id}");
     if let Some(existing) = app.get_webview_window(&label) {
+        // 若处于贴边隐藏状态,点击搜索结果时一并唤出,避免用户只看到 6px 露出条而困惑
+        #[cfg(desktop)]
+        dock::request_show(&label);
         let _ = existing.set_focus();
         return Ok(());
     }
@@ -85,50 +104,51 @@ async fn set_window_on_top(app: AppHandle, label: String, top: bool) -> CmdResul
 }
 
 #[tauri::command]
-async fn create_note(app: AppHandle, state: State<'_, Db>, input: db::CreateNoteInput) -> CmdResult<NoteWithItems> {
-    let note = with_conn(&state, |conn| db::create_note(conn, &input).map_err(|e| e.to_string()))?;
-    let _ = app.emit("notes-changed", &note.note.id);
+async fn create_note(app: AppHandle, window: tauri::Window, state: State<'_, Db>, input: db::CreateNoteInput) -> CmdResult<NoteWithItems> {
+    let note = with_conn(state.0.clone(), move |conn| db::create_note(conn, &input).map_err(|e| e.to_string())).await?;
+    let _ = app.emit("notes-changed", changed_payload(&note.note.id, window.label()));
     Ok(note)
 }
 
 #[tauri::command]
-async fn update_note(app: AppHandle, state: State<'_, Db>, id: String, input: db::UpdateNoteInput) -> CmdResult<NoteWithItems> {
-    let note = with_conn(&state, |conn| db::update_note(conn, &id, &input))?;
-    let _ = app.emit("notes-changed", &note.note.id);
+async fn update_note(app: AppHandle, window: tauri::Window, state: State<'_, Db>, id: String, input: db::UpdateNoteInput) -> CmdResult<NoteWithItems> {
+    let note = with_conn(state.0.clone(), move |conn| db::update_note(conn, &id, &input)).await?;
+    let _ = app.emit("notes-changed", changed_payload(&note.note.id, window.label()));
     Ok(note)
 }
 
 #[tauri::command]
-async fn delete_note(app: AppHandle, state: State<'_, Db>, id: String) -> CmdResult<()> {
-    with_conn(&state, |conn| db::delete_note(conn, &id))?;
-    let _ = app.emit("notes-changed", &id);
+async fn delete_note(app: AppHandle, window: tauri::Window, state: State<'_, Db>, id: String) -> CmdResult<()> {
+    let id = with_conn(state.0.clone(), move |conn| db::delete_note(conn, &id).map(|()| id)).await?;
+    let _ = app.emit("notes-changed", changed_payload(&id, window.label()));
     Ok(())
 }
 
 #[tauri::command]
-async fn add_todo_item(app: AppHandle, state: State<'_, Db>, note_id: String, text: String) -> CmdResult<TodoItem> {
-    let item = with_conn(&state, |conn| db::add_item(conn, &note_id, &text))?;
-    let _ = app.emit("notes-changed", &note_id);
+async fn add_todo_item(app: AppHandle, window: tauri::Window, state: State<'_, Db>, note_id: String, text: String) -> CmdResult<TodoItem> {
+    let item = with_conn(state.0.clone(), move |conn| db::add_item(conn, &note_id, &text)).await?;
+    let _ = app.emit("notes-changed", changed_payload(&item.note_id, window.label()));
     Ok(item)
 }
 
 #[tauri::command]
 async fn update_todo_item(
     app: AppHandle,
+    window: tauri::Window,
     state: State<'_, Db>,
     id: String,
     text: Option<String>,
     checked: Option<bool>,
 ) -> CmdResult<TodoItem> {
-    let item = with_conn(&state, |conn| db::update_item(conn, &id, text.as_deref(), checked))?;
-    let _ = app.emit("notes-changed", &item.note_id);
+    let item = with_conn(state.0.clone(), move |conn| db::update_item(conn, &id, text.as_deref(), checked)).await?;
+    let _ = app.emit("notes-changed", changed_payload(&item.note_id, window.label()));
     Ok(item)
 }
 
 #[tauri::command]
-async fn delete_todo_item(app: AppHandle, state: State<'_, Db>, id: String) -> CmdResult<()> {
-    with_conn(&state, |conn| db::delete_item(conn, &id))?;
-    let _ = app.emit("notes-changed", &id);
+async fn delete_todo_item(app: AppHandle, window: tauri::Window, state: State<'_, Db>, id: String) -> CmdResult<()> {
+    let note_id = with_conn(state.0.clone(), move |conn| db::delete_item(conn, &id)).await?;
+    let _ = app.emit("notes-changed", changed_payload(&note_id, window.label()));
     Ok(())
 }
 
@@ -174,9 +194,10 @@ pub fn run() {
                     if event.state != ShortcutState::Pressed {
                         return;
                     }
-                    let kind = if shortcut == &quick_shortcuts()[0] {
+                    let [todo_sc, note_sc] = quick_shortcuts();
+                    let kind = if shortcut == &todo_sc {
                         "todo"
-                    } else if shortcut == &quick_shortcuts()[1] {
+                    } else if shortcut == &note_sc {
                         "note"
                     } else {
                         return;
@@ -194,7 +215,7 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             let db_path = data_dir.join("notepad.db");
             let conn = db::init(&db_path).map_err(std::io::Error::other)?;
-            app.manage(Db(Mutex::new(conn)));
+            app.manage(Db(Arc::new(Mutex::new(conn))));
 
             #[cfg(desktop)]
             {

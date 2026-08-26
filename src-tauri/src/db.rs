@@ -1,9 +1,9 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
-pub struct Db(pub Mutex<Connection>);
+pub struct Db(pub Arc<Mutex<Connection>>);
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -80,6 +80,10 @@ pub fn init(path: &std::path::Path) -> Result<Connection, rusqlite::Error> {
         std::fs::create_dir_all(dir).ok();
     }
     let conn = Connection::open(path)?;
+    // WAL + NORMAL:写入不再整库阻塞;busy_timeout:遇到文件被占用(杀毒/同步软件)时等待而非立即失败
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    conn.pragma_update(None, "busy_timeout", 5000)?;
     conn.execute_batch(SCHEMA)?;
     Ok(conn)
 }
@@ -327,7 +331,8 @@ pub fn update_item(conn: &Connection, id: &str, text: Option<&str>, checked: Opt
     query_item(conn, id)
 }
 
-pub fn delete_item(conn: &Connection, id: &str) -> Result<(), String> {
+/// 删除待办项,返回其所属笔记的 id(供跨窗口同步事件使用)
+pub fn delete_item(conn: &Connection, id: &str) -> Result<String, String> {
     let note_id: Option<String> = conn
         .query_row("SELECT note_id FROM todo_items WHERE id = ?1", params![id], |r| r.get::<_, String>(0))
         .optional()
@@ -336,10 +341,10 @@ pub fn delete_item(conn: &Connection, id: &str) -> Result<(), String> {
     if n == 0 {
         return Err("待办不存在".into());
     }
-    if let Some(nid) = note_id {
-        touch_note(conn, &nid)?;
+    if let Some(nid) = &note_id {
+        touch_note(conn, nid)?;
     }
-    Ok(())
+    Ok(note_id.unwrap_or_default())
 }
 
 fn query_item(conn: &Connection, id: &str) -> Result<TodoItem, String> {
