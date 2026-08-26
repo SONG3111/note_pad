@@ -47,13 +47,32 @@ async fn detach_note_window(
         use tauri::WebviewUrl;
         let cp = app.cursor_position().map_err(|e| e.to_string())?;
         let (w, h) = (360.0_f64, 380.0_f64);
-        let x = (cp.x - w * 0.5).max(0.0);
-        let y = (cp.y - 24.0).max(0.0);
-        let scale = app
-            .primary_monitor()
-            .map_err(|e| e.to_string())?
-            .map(|m| m.scale_factor())
-            .unwrap_or(1.0);
+
+        // 定位到光标所在显示器并夹紧到其可见范围内(兼容负坐标的副屏)
+        let monitors = app.available_monitors().map_err(|e| e.to_string())?;
+        let mon = monitors.into_iter().find(|m| {
+            let p = m.position();
+            let s = m.size();
+            cp.x >= p.x as f64
+                && cp.x < (p.x as f64 + s.width as f64)
+                && cp.y >= p.y as f64
+                && cp.y < (p.y as f64 + s.height as f64)
+        });
+
+        let scale = mon.as_ref().map(|m| m.scale_factor()).unwrap_or(1.0);
+        let mut x = cp.x - w * 0.5;
+        let mut y = cp.y - 24.0;
+        if let Some(m) = &mon {
+            let mp = m.position();
+            let msz = m.size();
+            let (ml, mt) = (mp.x as f64, mp.y as f64);
+            let (mr, mb) = (ml + msz.width as f64, mt + msz.height as f64);
+            x = x.clamp(ml, (mr - w).max(ml));
+            y = y.clamp(mt, (mb - h).max(mt));
+        } else {
+            x = x.max(0.0);
+            y = y.max(0.0);
+        }
 
         let win = tauri::WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
             .title("note pad")
