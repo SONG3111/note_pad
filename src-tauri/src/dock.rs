@@ -35,6 +35,7 @@ struct LoopState {
     pending: Option<Edge>,
     pending_since: Instant,
     want_show: bool,
+    force_until_hover: bool, // 快捷键/托盘唤出后挂起自动收回,直到光标进入窗口
     last_set: Option<(i32, i32)>, // 我们最后一次写入的位置,用于识别用户拖动
     ext_ticks: u32,               // 连续检测到外部移动的次数
 }
@@ -47,6 +48,7 @@ pub fn spawn(app: AppHandle) {
             pending: None,
             pending_since: Instant::now(),
             want_show: false,
+            force_until_hover: false,
             last_set: None,
             ext_ticks: 0,
         };
@@ -117,6 +119,8 @@ impl LoopState {
                         self.docked_edge = Some(e);
                         self.want_show = false;
                         self.pending = None;
+                        // 停靠期间置顶显示(不抢焦点),弹出时不被其他应用遮挡
+                        let _ = win.set_always_on_top(true);
                     }
                 }
                 _ => {
@@ -170,9 +174,10 @@ impl LoopState {
             self.ext_ticks = 0;
         }
 
-        // 快捷键唤出:强制展开一次
+        // 快捷键/托盘唤出:强制展开一次,并挂起"光标离开即收回"
         if FORCE_SHOW.swap(false, Ordering::Relaxed) {
             self.want_show = true;
+            self.force_until_hover = true;
         }
 
         // 光标逻辑:靠近露出条 → 展开;离开窗口 → 收回
@@ -180,6 +185,11 @@ impl LoopState {
             .cursor_position()
             .map(|c| (c.x, c.y))
             .unwrap_or((f64::MIN, f64::MIN));
+
+        let inside = cx >= px - LEAVE_MARGIN
+            && cx <= px + w + LEAVE_MARGIN
+            && cy >= py - LEAVE_MARGIN
+            && cy <= py + h + LEAVE_MARGIN;
 
         if !self.want_show {
             let hit = match edge {
@@ -189,14 +199,13 @@ impl LoopState {
             if hit {
                 self.want_show = true;
             }
-        } else {
-            let inside = cx >= px - LEAVE_MARGIN
-                && cx <= px + w + LEAVE_MARGIN
-                && cy >= py - LEAVE_MARGIN
-                && cy <= py + h + LEAVE_MARGIN;
-            if !inside {
-                self.want_show = false;
+        } else if self.force_until_hover {
+            // 唤出展开期间不自动收回,等光标进入窗口一次后恢复常规逻辑
+            if inside {
+                self.force_until_hover = false;
             }
+        } else if !inside {
+            self.want_show = false;
         }
 
         let tx = if self.want_show { tx_shown } else { tx_hidden };
@@ -219,6 +228,8 @@ impl LoopState {
         self.pending = None;
         self.last_set = None;
         self.ext_ticks = 0;
+        self.force_until_hover = false;
+        let _ = win.set_always_on_top(false);
         // 把窗口拉回屏幕内可见区域
         if let Some((mon_l, mon_t, mon_r, mon_b)) = self.mon {
             let pos = win.outer_position()?;

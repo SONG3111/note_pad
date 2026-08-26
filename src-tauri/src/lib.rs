@@ -79,26 +79,40 @@ fn reveal_and_focus(app: &AppHandle) {
     }
 }
 
+#[cfg(desktop)]
+fn quick_shortcuts() -> [tauri_plugin_global_shortcut::Shortcut; 2] {
+    use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
+    [
+        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyT),
+        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyN),
+    ]
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default();
 
+    // 单实例:重复启动时聚焦已有窗口而不是开新进程
     #[cfg(desktop)]
-    let builder = {
-        use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            reveal_and_focus(app);
+        }));
+    }
 
-        let quick_todo = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyT);
-        let quick_note = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyN);
-
-        builder.plugin(
+    // 全局快捷键(注册失败不崩溃,仅降级)
+    #[cfg(desktop)]
+    {
+        use tauri_plugin_global_shortcut::ShortcutState;
+        builder = builder.plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, shortcut, event| {
                     if event.state != ShortcutState::Pressed {
                         return;
                     }
-                    let kind = if shortcut == &quick_todo {
+                    let kind = if shortcut == &quick_shortcuts()[0] {
                         "todo"
-                    } else if shortcut == &quick_note {
+                    } else if shortcut == &quick_shortcuts()[1] {
                         "note"
                     } else {
                         return;
@@ -106,11 +120,9 @@ pub fn run() {
                     reveal_and_focus(app);
                     let _ = app.emit("quick-add", kind);
                 })
-                .with_shortcuts([quick_todo, quick_note])
-                .expect("failed to register global shortcuts")
                 .build(),
-        )
-    };
+        );
+    }
 
     builder
         .plugin(tauri_plugin_opener::init())
@@ -125,9 +137,19 @@ pub fn run() {
                 use tauri::menu::{Menu, MenuItem};
                 dock::spawn(app.handle().clone());
 
+                // 快捷键注册:失败(如被其他实例占用)仅提示,不崩溃
+                use tauri_plugin_global_shortcut::GlobalShortcutExt;
+                let gs = app.global_shortcut();
+                for sc in quick_shortcuts() {
+                    if let Err(e) = gs.register(sc) {
+                        eprintln!("全局快捷键注册失败({e}),可能已有另一个实例在运行");
+                    }
+                }
+
                 let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
                 let quit = MenuItem::with_id(app, "quit", "退出 note pad", true, None::<&str>)?;
                 let menu = Menu::with_items(app, &[&show, &quit])?;
+                use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
                 tauri::tray::TrayIconBuilder::with_id("main-tray")
                     .icon(app.default_window_icon().expect("missing icon").clone())
                     .tooltip("note pad")
@@ -136,6 +158,21 @@ pub fn run() {
                     .on_menu_event(|app, event| match event.id.as_ref() {
                         "show" => reveal_and_focus(app),
                         "quit" => app.exit(0),
+                        _ => {}
+                    })
+                    // 左键单击/双击托盘图标 = 显示主窗口
+                    .on_tray_icon_event(|tray, event| match event {
+                        TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        }
+                        | TrayIconEvent::DoubleClick {
+                            button: MouseButton::Left,
+                            ..
+                        } => {
+                            reveal_and_focus(tray.app_handle());
+                        }
                         _ => {}
                     })
                     .build(app)?;

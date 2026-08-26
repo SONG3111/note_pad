@@ -99,7 +99,11 @@ function close() {
               <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M10 11v6M14 11v6"/>
             </svg>
           </button>
-          <button class="tool-btn" title="关闭" @click="close">✕</button>
+          <button class="tool-btn close" title="关闭" @click="close">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -186,11 +190,21 @@ function close() {
   font-size: 13px;
   display: grid;
   place-items: center;
-  transition: background 0.15s;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.12s ease;
 }
-.tool-btn:hover { background: #fff; }
-.tool-btn.active { background: #fff3bf; }
+.tool-btn svg { display: block; }
+.tool-btn:hover { background: #edf2f7; }
+.tool-btn:active { transform: scale(0.96); }
+.tool-btn.active { background: #e6f4ee; }
+.tool-btn.danger { color: #c53030; }
 .tool-btn.danger:hover { background: #ffe3e3; }
+.tool-btn.close:hover {
+  background: #2d3748;
+  color: #fff;
+}
 
 .title-input {
   width: 100%;

@@ -9,7 +9,7 @@ import NoteEditor from "./components/NoteEditor.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 
 const store = useNotesStore();
-const { visible: notes, loading, searchQuery, viewFilter } = storeToRefs(store);
+const { visible: notes, notes: allNotes, loading, searchQuery, viewFilter } = storeToRefs(store);
 
 const editingId = ref<string | null>(null);
 const appWindow = getCurrentWindow();
@@ -52,10 +52,9 @@ function countOf(key: ViewFilter): number {
 }
 
 const emptyHint = computed(() => {
-  if (searchQuery.value.trim()) return `没有匹配「${searchQuery.value}」的记录`;
-  if (viewFilter.value === "todo") return "还没有待办,点右上角「＋ 待办」新建";
-  if (viewFilter.value === "note") return "还没有便签,点右上角「＋ 便签」新建";
-  return "还没有任何记录\n点右上角开始记录你的第一个 idea";
+  if (viewFilter.value === "todo") return "暂无待办,添加任务来规划生活";
+  if (viewFilter.value === "note") return "暂无便签,捕捉转瞬即逝的灵感";
+  return "暂无任何记录,点击下方 + 新建你的第一条内容";
 });
 
 function removeNote(id: string) {
@@ -130,7 +129,8 @@ function closeEditor(isEmpty?: boolean) {
 
     <main class="board">
       <p v-if="loading" class="empty">加载中…</p>
-      <p v-else-if="notes.length === 0" class="empty">{{ emptyHint }}</p>
+      <p v-else-if="allNotes.length === 0" class="empty">{{ emptyHint }}</p>
+      <p v-else-if="notes.length === 0" class="empty">没有匹配「{{ searchQuery }}」的记录<br /><span class="empty-hint">换个关键词试试,或清空搜索查看全部</span></p>
 
       <div v-else class="list">
         <template v-for="note in notes" :key="note.id">
@@ -373,7 +373,9 @@ html, body, #app { margin: 0; height: 100%; }
   color: #a0aec0;
   font-size: 14px;
   line-height: 2;
-  white-space: pre-line;
+}
+.empty-hint {
+  font-size: 12.5px;
 }
 
 .list {

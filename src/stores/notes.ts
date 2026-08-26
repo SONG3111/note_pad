@@ -10,6 +10,16 @@ export const useNotesStore = defineStore("notes", () => {
   const loading = ref(false);
   const searchQuery = ref("");
   const viewFilter = ref<ViewFilter>("all");
+  // 待办卡片的展开状态(id -> 是否展开),未记录的默认展开
+  const expandedMap = ref<Record<string, boolean>>({});
+
+  function isExpanded(id: string): boolean {
+    return expandedMap.value[id] ?? true;
+  }
+
+  function setExpanded(id: string, v: boolean) {
+    expandedMap.value[id] = v;
+  }
 
   const visible = computed(() => {
     let list = notes.value;
@@ -25,17 +35,14 @@ export const useNotesStore = defineStore("notes", () => {
       });
     }
 
-    // 置顶优先,其余按时间倒序;"全部"tab 下待办整体排在便签前面
+    // 置顶(无论类型)永远最前;其余按时间倒序;"全部"tab 下同层级内待办排在便签前面
     const sorted = [...list];
     const pinRank = (n: NoteWithItems) => (n.pinned ? 0 : 1);
-    if (viewFilter.value === "all") {
-      const typeRank = (n: NoteWithItems) => (n.type === "todo" ? 0 : 1);
-      sorted.sort(
-        (a, b) => typeRank(a) - typeRank(b) || pinRank(a) - pinRank(b) || b.updatedAt - a.updatedAt
-      );
-    } else {
-      sorted.sort((a, b) => pinRank(a) - pinRank(b) || b.updatedAt - a.updatedAt);
-    }
+    const typeRank = (n: NoteWithItems) =>
+      viewFilter.value === "all" ? (n.type === "todo" ? 0 : 1) : 0;
+    sorted.sort(
+      (a, b) => pinRank(a) - pinRank(b) || typeRank(a) - typeRank(b) || b.updatedAt - a.updatedAt
+    );
     return sorted;
   });
 
@@ -124,6 +131,8 @@ export const useNotesStore = defineStore("notes", () => {
     searchQuery,
     viewFilter,
     visible,
+    isExpanded,
+    setExpanded,
     load,
     create,
     save,

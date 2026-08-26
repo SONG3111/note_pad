@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import { relativeTime, type NoteWithItems } from "../types";
 import TodoCheckbox from "./TodoCheckbox.vue";
+import { useNotesStore } from "../stores/notes";
 
 const props = defineProps<{ note: NoteWithItems }>();
 
@@ -13,7 +14,12 @@ const emit = defineEmits<{
   removeItem: [itemId: string];
 }>();
 
-const expanded = ref(true);
+// 展开/收起状态存于 store,切换 tab 不丢失
+const notesStore = useNotesStore();
+const expanded = computed({
+  get: () => notesStore.isExpanded(props.note.id),
+  set: (v: boolean) => notesStore.setExpanded(props.note.id, v),
+});
 const collapsible = computed(() => props.note.items.length > 6);
 const visibleItems = computed(() =>
   expanded.value ? props.note.items : props.note.items.slice(0, 6)
