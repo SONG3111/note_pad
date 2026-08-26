@@ -14,7 +14,7 @@ export const useNotesStore = defineStore("notes", () => {
   const expandedMap = ref<Record<string, boolean>>({});
 
   function isExpanded(id: string): boolean {
-    return expandedMap.value[id] ?? true;
+    return expandedMap.value[id] ?? false;
   }
 
   function setExpanded(id: string, v: boolean) {
@@ -57,6 +57,14 @@ export const useNotesStore = defineStore("notes", () => {
 
   function find(id: string): NoteWithItems | undefined {
     return notes.value.find((n) => n.id === id);
+  }
+
+  async function loadNote(id: string): Promise<NoteWithItems | null> {
+    try {
+      return await invoke<NoteWithItems>("get_note", { id });
+    } catch {
+      return null;
+    }
   }
 
   async function create(type: NoteType, color?: string) {
@@ -134,6 +142,7 @@ export const useNotesStore = defineStore("notes", () => {
     isExpanded,
     setExpanded,
     load,
+    loadNote,
     create,
     save,
     remove,

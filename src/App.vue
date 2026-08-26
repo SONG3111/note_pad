@@ -1,18 +1,26 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useNotesStore, type ViewFilter } from "./stores/notes";
 import NoteCard from "./components/NoteCard.vue";
 import NoteEditor from "./components/NoteEditor.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 
 const store = useNotesStore();
-const { visible: notes, notes: allNotes, loading, searchQuery, viewFilter } = storeToRefs(store);
+const { visible: visibleNotes, notes: allNotes, loading, searchQuery, viewFilter } = storeToRefs(store);
 
 const editingId = ref<string | null>(null);
 const appWindow = getCurrentWindow();
+
+// 已拖出为独立窗口的便签 id,从主界面列表暂时隐藏
+const detached = ref<Set<string>>(new Set());
+let unlistenClosed: UnlistenFn | null = null;
+
+const boardNotes = computed(() => visibleNotes.value.filter((n) => !detached.value.has(n.id)));
+const boardTotal = computed(() => allNotes.value.filter((n) => !detached.value.has(n.id)).length);
 
 function hideToTray() {
   appWindow.hide();
@@ -22,21 +30,31 @@ onMounted(async () => {
   await store.load();
   // 全局快捷键:Ctrl+Alt+T 快速待办 / Ctrl+Alt+N 快速便签
   await listen<"todo" | "note">("quick-add", (e) => {
-    quickAdd(e.payload);
+    newNote(e.payload);
+  });
+  // 独立便签窗口关闭 → 恢复显示并刷新其最新内容
+  unlistenClosed = await listen<string>("note-window-closed", (e) => {
+    detached.value.delete(e.payload);
+    detached.value = new Set(detached.value);
+    store.load();
   });
 });
 
-async function quickAdd(type: "note" | "todo") {
-  const created = await store.create(type);
-  viewFilter.value = type;
-  searchQuery.value = "";
-  editingId.value = created.id;
+onBeforeUnmount(() => unlistenClosed?.());
+
+async function detachNote(id: string, fromDrag: boolean) {
+  if (editingId.value === id) editingId.value = null;
+  try {
+    await invoke("detach_note_window", { id, drag: fromDrag });
+    detached.value = new Set([...detached.value, id]);
+  } catch {}
 }
 
 async function newNote(type: "note" | "todo") {
   const created = await store.create(type);
   viewFilter.value = type;
   searchQuery.value = "";
+  detached.value.delete(created.id);
   editingId.value = created.id;
 }
 
@@ -54,7 +72,7 @@ function countOf(key: ViewFilter): number {
 const emptyHint = computed(() => {
   if (viewFilter.value === "todo") return "暂无待办,添加任务来规划生活";
   if (viewFilter.value === "note") return "暂无便签,捕捉转瞬即逝的灵感";
-  return "暂无任何记录,点击下方 + 新建你的第一条内容";
+  return "暂无任何记录,快来新建你的第一条内容吧";
 });
 
 function removeNote(id: string) {
@@ -89,7 +107,7 @@ function closeEditor(isEmpty?: boolean) {
           <svg width="11" height="11" viewBox="0 0 11 11"><rect x="0.5" y="0.5" width="10" height="10" fill="none" stroke="currentColor"/></svg>
         </button>
         <button class="win-btn close" title="隐藏到托盘" @click="hideToTray()">
-          <svg width="11" height="11" viewBox="0 0 11 11"><path d="M0.5 0.5 L10.5 10.5 M10.5 0.5 L0.5 10.5" stroke="currentColor" stroke-width="1.1"/></svg>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
         </button>
       </div>
     </header>
@@ -129,11 +147,12 @@ function closeEditor(isEmpty?: boolean) {
 
     <main class="board">
       <p v-if="loading" class="empty">加载中…</p>
-      <p v-else-if="allNotes.length === 0" class="empty">{{ emptyHint }}</p>
-      <p v-else-if="notes.length === 0" class="empty">没有匹配「{{ searchQuery }}」的记录<br /><span class="empty-hint">换个关键词试试,或清空搜索查看全部</span></p>
+      <p v-else-if="boardTotal === 0 && allNotes.length > 0" class="empty">便签已拖出为独立窗口<br /><span class="empty-hint">关闭对应窗口后会自动回到这里</span></p>
+      <p v-else-if="boardTotal === 0" class="empty">{{ emptyHint }}</p>
+      <p v-else-if="boardNotes.length === 0" class="empty">没有匹配「{{ searchQuery }}」的记录<br /><span class="empty-hint">换个关键词试试,或清空搜索查看全部</span></p>
 
       <div v-else class="list">
-        <template v-for="note in notes" :key="note.id">
+        <template v-for="note in boardNotes" :key="note.id">
           <NoteCard
             :note="note"
             @edit="editingId = note.id"
@@ -141,6 +160,7 @@ function closeEditor(isEmpty?: boolean) {
             @toggle-pin="store.togglePin(note.id)"
             @toggle-item="(itemId, checked) => store.updateItem(note.id, itemId, { checked })"
             @remove-item="(itemId) => store.removeItem(note.id, itemId)"
+            @detach="(fromDrag) => detachNote(note.id, fromDrag)"
           />
           <Teleport to="body">
             <NoteEditor
@@ -222,7 +242,7 @@ html, body, #app { margin: 0; height: 100%; }
   color: #2d3748;
 }
 .win-btn.close:hover {
-  background: #e53e3e;
+  background: #2d3748;
   color: #fff;
 }
 

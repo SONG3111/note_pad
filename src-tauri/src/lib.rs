@@ -21,6 +21,71 @@ fn list_notes(state: State<Db>) -> CmdResult<Vec<NoteWithItems>> {
 }
 
 #[tauri::command]
+fn get_note(state: State<Db>, id: String) -> CmdResult<NoteWithItems> {
+    with_conn(&state, |conn| db::get_note(conn, &id).map_err(|e| e.to_string()))
+}
+
+/// 把便签从主界面拖出为独立窗口:drag=true 表示来自拖拽手势(鼠标仍按住,可无缝续拖)
+#[tauri::command]
+async fn detach_note_window(
+    app: AppHandle,
+    state: State<'_, Db>,
+    id: String,
+    drag: Option<bool>,
+) -> CmdResult<()> {
+    // 确认笔记存在
+    with_conn(&state, |conn| db::get_note(conn, &id).map_err(|e| e.to_string()))?;
+
+    let label = format!("note-{id}");
+    if let Some(existing) = app.get_webview_window(&label) {
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+
+    #[cfg(desktop)]
+    {
+        use tauri::WebviewUrl;
+        let cp = app.cursor_position().map_err(|e| e.to_string())?;
+        let (w, h) = (360.0_f64, 380.0_f64);
+        let x = (cp.x - w * 0.5).max(0.0);
+        let y = (cp.y - 24.0).max(0.0);
+        let scale = app
+            .primary_monitor()
+            .map_err(|e| e.to_string())?
+            .map(|m| m.scale_factor())
+            .unwrap_or(1.0);
+
+        let win = tauri::WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
+            .title("note pad")
+            .inner_size(w, h)
+            .position(x / scale, y / scale)
+            .decorations(false)
+            .transparent(true)
+            .shadow(false)
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        let _ = win.set_focus();
+        // 仅当鼠标仍按住时才进入拖动循环;按钮点击路径调用会卡死消息泵!
+        if drag.unwrap_or(false) {
+            let _ = win.start_dragging();
+        }
+        dock::register(label);
+    }
+    let _ = app.emit("note-detached", &id);
+    Ok(())
+}
+
+/// 切换任意窗口的置顶状态
+#[tauri::command]
+async fn set_window_on_top(app: AppHandle, label: String, top: bool) -> CmdResult<()> {
+    let win = app
+        .get_webview_window(&label)
+        .ok_or_else(|| "窗口不存在".to_string())?;
+    win.set_always_on_top(top).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn create_note(app: AppHandle, state: State<'_, Db>, input: db::CreateNoteInput) -> CmdResult<NoteWithItems> {
     let note = with_conn(&state, |conn| db::create_note(conn, &input).map_err(|e| e.to_string()))?;
     let _ = app.emit("notes-changed", &note.note.id);
@@ -75,7 +140,7 @@ fn reveal_and_focus(app: &AppHandle) {
         let _ = win.unminimize();
         let _ = win.set_focus();
         // 若处于贴边隐藏状态,请求展开
-        dock::request_show();
+        dock::request_show("main");
     }
 }
 
@@ -179,21 +244,34 @@ pub fn run() {
             }
             Ok(())
         })
-        .on_window_event(|window, event| {
-            // 点关闭 = 隐藏到托盘,真正退出走托盘菜单
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+        .on_window_event(|window, event| match event {
+            // 主窗口点关闭 = 隐藏到托盘;独立便签窗口允许真正关闭
+            tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
                 api.prevent_close();
                 let _ = window.hide();
             }
+            // 独立窗口销毁:注销停靠管理并通知主界面恢复显示该便签
+            tauri::WindowEvent::Destroyed => {
+                if window.label().starts_with("note-") {
+                    #[cfg(desktop)]
+                    dock::unregister(window.label());
+                    let id = window.label().trim_start_matches("note-");
+                    let _ = window.app_handle().emit("note-window-closed", id);
+                }
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             list_notes,
+            get_note,
             create_note,
             update_note,
             delete_note,
             add_todo_item,
             update_todo_item,
-            delete_todo_item
+            delete_todo_item,
+            detach_note_window,
+            set_window_on_top
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

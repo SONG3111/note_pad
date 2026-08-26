@@ -12,7 +12,36 @@ const emit = defineEmits<{
   togglePin: [];
   toggleItem: [itemId: string, checked: boolean];
   removeItem: [itemId: string];
+  detach: [fromDrag: boolean];
 }>();
+
+// 拖出手势:按住卡片移动超过阈值 → 拖出为独立窗口
+let dragStart: { x: number; y: number } | null = null;
+function onDown(e: MouseEvent) {
+  if (e.button !== 0) return;
+  const t = e.target as HTMLElement;
+  if (t.closest("button, input, textarea, label, a")) return;
+  dragStart = { x: e.clientX, y: e.clientY };
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+}
+function onMove(e: MouseEvent) {
+  if (!dragStart) return;
+  const dx = e.clientX - dragStart.x;
+  const dy = e.clientY - dragStart.y;
+  if (Math.hypot(dx, dy) > 26) {
+    cancelDrag();
+    emit("detach", true); // 鼠标仍按住 → 可无缝续拖
+  }
+}
+function onUp() {
+  cancelDrag();
+}
+function cancelDrag() {
+  dragStart = null;
+  window.removeEventListener("mousemove", onMove);
+  window.removeEventListener("mouseup", onUp);
+}
 
 // 展开/收起状态存于 store,切换 tab 不丢失
 const notesStore = useNotesStore();
@@ -31,12 +60,15 @@ const progress = computed(() => (totalCount.value === 0 ? 0 : Math.round((doneCo
 </script>
 
 <template>
-  <article class="card" :style="{ '--card-color': note.color ?? '#f6f7f9' }">
+  <article class="card" :style="{ '--card-color': note.color ?? '#f6f7f9' }" @mousedown="onDown">
     <div class="card-top">
       <span v-if="note.pinned" class="pin-badge">📌</span>
       <div class="card-actions">
         <button class="icon-btn" title="编辑" @click="emit('edit')">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+        </button>
+        <button class="icon-btn" title="拖出为独立窗口" @click="emit('detach', false)">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
         </button>
         <button
           class="icon-btn"
@@ -65,7 +97,7 @@ const progress = computed(() => (totalCount.value === 0 ? 0 : Math.round((doneCo
         </svg>
         {{ expanded ? "收起" : `展开全部 ${note.items.length} 项` }}
       </button>
-      <p v-if="note.items.length === 0" class="more-hint">空待办 · 点击添加</p>
+      <p v-if="note.items.length === 0" class="more-hint">空待办 · 编辑添加</p>
       <div v-if="totalCount > 0" class="progress-wrap">
         <div class="progress-bar"><div class="progress-fill" :style="{ width: progress + '%' }"></div></div>
         <span class="progress-text">{{ doneCount }}/{{ totalCount }}</span>

@@ -116,6 +116,39 @@
 
 ---
 
+## 六、独立便签窗口(拖出功能)
+
+### 6.1 独立窗口右上角 ✕ 点击无反应
+
+- **现象**:独立便签窗口点关闭按钮,窗口纹丝不动,控制台也无明显报错。
+- **根因**:Tauri v2 的安全模型是「默认拒绝一切」——前端调用的每个 API 都需要在 `capabilities/default.json` 中显式授权。`close()` 所需的 `core:window:allow-close` 没有配置,调用被静默拒绝。
+- **修复**:capabilities 的 permissions 数组补上 `"core:window:allow-close"`;同时 `windows` 字段加入 `"note-*"` 通配,让动态创建的独立窗口也纳入能力授权范围。
+- **教训**:Tauri v2 里任何「调用了但没反应、也不报错」的 API,第一反应查 capabilities。
+
+### 6.2 通过按钮拖出时系统假死
+
+- **现象**:点击卡片上的「⧉ 拖出」按钮后,整个系统陷入假死,只能任务管理器杀进程。
+- **根因**:`start_dragging()` 在鼠标按键**未按下**时被调用——Windows 上这会触发一个没有鼠标捕获的模态移动循环(SC_MOVE),卡死该窗口乃至系统的消息泵。拖拽手势路径没事,因为手势发生时鼠标必然按着。
+- **修复**(`lib.rs`):`detach_note_window` 增加 `drag` 参数区分来源——拖拽手势(鼠标按住)传 true 才执行 `start_dragging()` 无缝续拖;按钮路径传 false,跳过拖动循环,窗口仅在光标处生成。
+- **验证**:两条拖出路径各测一次,均正常且不再假死。
+
+### 6.3 待办列表撑爆独立窗口布局
+
+- **现象**:待办项较多时,独立窗口内列表把底部「添加输入框」「颜色选择」直接顶出窗外裁掉,列表也无法滚动。
+- **根因**:flex 链断裂——`.todo-editor` 没有 `flex:1; min-height:0`,高度被内容无限撑开,内部 `.scroll-area` 的 `flex:1` 形同虚设,超出部分被 `.body` 的 `overflow:hidden` 裁剪。
+- **修复**:补全弹性链 `.body(overflow hidden) → .todo-editor(flex:1, min-height:0) → .scroll-area(flex:1, overflow-y:auto)`,输入框与颜色栏 `flex:none` 固定底部;滚动条隐藏用 `scrollbar-width:none + ::-webkit-scrollbar{display:none}`。
+- **经验**:嵌套滚动区域里,**每一层 flex 子项都要 `min-height:0`**,少一层就会退化成 content-size。
+
+### 6.4 透明圆角窗口出现白边/黑角
+
+- **背景**:独立窗口要做圆角效果,仅 CSS `border-radius` 不够——窗口本体不透明时四角仍是方形色块。
+- **修复组合拳**(`lib.rs` + `NoteWindowApp.vue`):
+  1. Builder 加 `.transparent(true)`(配合已有的 `.shadow(false)`);
+  2. 全局重置 `html,body,#app { margin:0; height:100%; background:transparent }`(否则 body 默认 margin 露出白边);
+  3. 根节点 `.nwin` 设 `border-radius:14px; overflow:hidden`,四周留 4px 透明边距给圆角和内描边阴影渲染空间。
+
+---
+
 ## 附:回归测试清单
 
 每次发布前建议快速过一遍:
@@ -128,4 +161,8 @@
 - [ ] 贴边状态下点其他软件再回边缘,能正常弹出且不被遮挡
 - [ ] 托盘单击/双击唤出;右键菜单显示/退出可用
 - [ ] `Ctrl+Alt+T` / `Ctrl+Alt+N` 在任意前台应用下可唤出新建
-- [ ] 关闭(X)进托盘而非退出;托盘「退出」真正结束进程
+- [ ] 主界面关闭(X)进托盘而非退出;托盘「退出」真正结束进程
+- [ ] 卡片拖拽 / ⧉ 按钮两种方式均可拖出独立窗口,且无假死
+- [ ] 独立窗口:编辑自动保存、✕ 关闭后卡片回到主列表
+- [ ] 独立窗口四向贴边(L/R/T/B);📌 置顶开关生效
+- [ ] 独立窗口长待办列表可滚动,底栏(输入框/颜色)固定不动
