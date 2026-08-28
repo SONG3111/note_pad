@@ -1,6 +1,7 @@
 import { createApp } from "vue";
 import { createPinia } from "pinia";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import "./design.css";
 import App from "./App.vue";
 import NoteWindowApp from "./NoteWindowApp.vue";
 

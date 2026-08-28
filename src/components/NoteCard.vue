@@ -124,21 +124,26 @@ watch(allDone, (v, was) => {
 <style scoped>
 .card {
   background: var(--card-color);
-  border-radius: 12px;
-  padding: 34px 16px 14px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
-  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  padding: 38px 18px 16px;
+  box-shadow: var(--shadow-s);
+  transition:
+    box-shadow 0.2s var(--ease-out),
+    transform 0.2s var(--ease-out),
+    border-color 0.2s var(--ease-out);
   position: relative;
 }
 .card:hover {
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
-  transform: translateY(-1px);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-m);
+  transform: translateY(-2px);
 }
 
 .card-top {
   position: absolute;
-  top: 8px;
-  right: 10px;
+  top: 10px;
+  right: 12px;
   display: flex;
   gap: 4px;
 }
@@ -147,15 +152,16 @@ watch(allDone, (v, was) => {
 }
 .win-badge {
   position: absolute;
-  top: 8px;
-  left: 10px;
+  top: 10px;
+  left: 14px;
   font-size: 10.5px;
-  color: #4a90d9;
-  background: rgba(74, 144, 217, 0.1);
-  border: 1px solid rgba(74, 144, 217, 0.35);
-  padding: 1px 7px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  padding: 2px 8px;
   border-radius: 999px;
   pointer-events: none;
+  letter-spacing: 0.2px;
 }
 .card:hover .pin-badge {
   display: none;
@@ -169,42 +175,45 @@ watch(allDone, (v, was) => {
 }
 .icon-btn {
   border: none;
-  background: rgba(255, 255, 255, 0.85);
-  border-radius: 6px;
-  width: 26px;
-  height: 26px;
+  background: color-mix(in srgb, var(--card-color) 60%, var(--surface) 40%);
+  border-radius: var(--radius-s);
+  width: 27px;
+  height: 27px;
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
   opacity: 0.75;
+  box-shadow: var(--shadow-s);
   transition:
-    opacity 0.15s ease,
-    background-color 0.15s ease,
-    box-shadow 0.15s ease;
+    opacity 0.15s var(--ease-out),
+    background-color 0.15s var(--ease-out),
+    box-shadow 0.15s var(--ease-out),
+    transform 0.1s var(--ease-out);
   display: grid;
   place-items: center;
   padding: 0;
 }
+.icon-btn:active { transform: scale(0.9); }
 .icon-btn:hover {
   opacity: 1;
-  background: #fff;
+  background: var(--surface);
+  box-shadow: var(--shadow-m);
 }
 .icon-btn.active {
-  box-shadow: inset 0 0 0 2px #4a5568;
+  box-shadow: inset 0 0 0 2px var(--text-faint);
   opacity: 1;
 }
+.icon-btn.danger { color: var(--danger); }
 .icon-btn.danger:hover {
-  color: #d33;
-}
-.icon-btn.danger {
-  color: #d33;
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 
 .title {
   margin: 0 0 6px;
   font-size: 15px;
   font-weight: 600;
-  color: #2c3e50;
+  color: var(--text-strong);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -212,8 +221,8 @@ watch(allDone, (v, was) => {
 .content {
   margin: 0;
   font-size: 13.5px;
-  line-height: 1.65;
-  color: #4a5568;
+  line-height: 1.7;
+  color: var(--text);
   white-space: pre-wrap;
   word-break: break-word;
   display: -webkit-box;
@@ -227,7 +236,7 @@ watch(allDone, (v, was) => {
 }
 /* 全部完成:待办区集体轻微缩放脉冲 */
 .todo-area.pop {
-  animation: nc-todo-pop 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  animation: nc-todo-pop 0.4s var(--ease-in-out);
 }
 @keyframes nc-todo-pop {
   0%, 100% { transform: scale(1); }
@@ -239,7 +248,7 @@ watch(allDone, (v, was) => {
   gap: 8px;
   padding: 3px 0;
   font-size: 13.5px;
-  color: #34495e;
+  color: var(--text);
 }
 .todo-row :deep(.cb-wrap) {
   margin-top: 2px;
@@ -253,34 +262,34 @@ watch(allDone, (v, was) => {
   flex: none;
   border: none;
   background: transparent;
-  color: #c0c8d4;
+  color: var(--text-faint);
   cursor: pointer;
   width: 20px;
   height: 20px;
-  border-radius: 6px;
+  border-radius: var(--radius-s);
   display: grid;
   place-items: center;
   margin-left: auto;
   opacity: 0;
   transition:
-    opacity 0.15s ease,
-    color 0.15s ease,
-    background-color 0.15s ease;
+    opacity 0.15s var(--ease-out),
+    color 0.15s var(--ease-out),
+    background-color 0.15s var(--ease-out);
 }
 .todo-row:hover .row-del {
   opacity: 1;
 }
 .row-del:hover {
-  color: #e53e3e;
-  background-color: rgba(229, 62, 62, 0.08);
+  color: var(--danger);
+  background-color: var(--danger-soft);
 }
 .todo-row .done {
   text-decoration: line-through;
-  color: #a0aec0;
+  color: var(--text-faint);
 }
 .more-hint {
   font-size: 12px;
-  color: #a0aec0;
+  color: var(--text-faint);
   margin: 4px 0 0;
 }
 
@@ -293,15 +302,15 @@ watch(allDone, (v, was) => {
   padding: 2px 0;
   margin-top: 6px;
   font-size: 12px;
-  color: #718096;
+  color: var(--text-muted);
   cursor: pointer;
-  transition: color 0.15s ease;
+  transition: color 0.15s var(--ease-out);
 }
-.collapse-btn:hover { color: #2d3748; }
+.collapse-btn:hover { color: var(--text-strong); }
 .chev {
   width: 12px;
   height: 12px;
-  transition: transform 0.18s cubic-bezier(0.2, 0, 0, 1);
+  transition: transform 0.18s var(--ease-in-out);
 }
 .chev.up { transform: rotate(180deg); }
 
@@ -314,19 +323,19 @@ watch(allDone, (v, was) => {
 .progress-bar {
   flex: 1;
   height: 4px;
-  background: rgba(0, 0, 0, 0.08);
-  border-radius: 2px;
+  background: color-mix(in srgb, var(--card-color) 30%, var(--border-strong));
+  border-radius: 999px;
   overflow: hidden;
 }
 .progress-fill {
   height: 100%;
-  background: #4a90d9;
-  border-radius: 2px;
-  transition: width 0.25s ease;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.25s var(--ease-out);
 }
 .progress-text {
   font-size: 11.5px;
-  color: #718096;
+  color: var(--text-muted);
   min-width: 30px;
   text-align: right;
 }
@@ -334,6 +343,6 @@ watch(allDone, (v, was) => {
 .card-footer {
   margin-top: 10px;
   font-size: 11.5px;
-  color: #a0aec0;
+  color: var(--text-faint);
 }
 </style>

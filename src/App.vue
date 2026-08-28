@@ -134,7 +134,7 @@ function closeEditor(isEmpty?: boolean) {
 <template>
   <div class="app">
     <header class="topbar" data-tauri-drag-region>
-      <h1 class="brand" data-tauri-drag-region>note pad</h1>
+      <h1 class="brand" data-tauri-drag-region>灵感便签</h1>
       <div class="win-controls">
         <button class="win-btn" title="最小化" @click="appWindow.minimize()">
           <svg width="11" height="11" viewBox="0 0 11 11"><rect x="0" y="5" width="11" height="1" fill="currentColor"/></svg>
@@ -232,158 +232,180 @@ function closeEditor(isEmpty?: boolean) {
 </template>
 
 <style>
-:root {
-  font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
-  color: #2c3e50;
-  background: #eef1f5;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
+html,
+body,
+#app {
+  height: 100%;
 }
-* { box-sizing: border-box; }
-html, body, #app { margin: 0; height: 100%; }
 
 .app {
   display: flex;
   flex-direction: column;
   height: 100vh;
   position: relative;
+  color: var(--text);
+  background: var(--bg);
 }
 
+/* ============ 顶部栏: 轻透、单发丝分隔 ============ */
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 8px 6px 16px;
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  padding: 10px 10px 10px 18px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
   z-index: 10;
   user-select: none;
 }
 .brand {
   margin: 0;
-  font-size: 16px;
-  letter-spacing: -0.5px;
-  color: #2c3e50;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  color: var(--text-strong);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.brand::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: linear-gradient(135deg, var(--accent), var(--note));
+  box-shadow: var(--shadow-s);
 }
 .win-controls {
   display: flex;
+  gap: 2px;
 }
 .win-btn {
-  width: 38px;
+  width: 34px;
+  height: 28px;
   border: none;
   background: transparent;
-  color: #718096;
+  color: var(--text-muted);
   cursor: pointer;
   display: grid;
   place-items: center;
-  transition: background 0.12s, color 0.12s;
-  border-radius: 6px;
+  border-radius: var(--radius-s);
+  transition:
+    background-color 0.12s var(--ease-out),
+    color 0.12s var(--ease-out);
 }
+.win-btn:active { transform: scale(0.94); }
 .win-btn:hover {
-  background: #edf2f7;
-  color: #2d3748;
+  background: var(--bg-soft);
+  color: var(--text-strong);
 }
 .win-btn.close:hover {
-  background: #2d3748;
+  background: var(--danger);
   color: #fff;
 }
 
+/* ============ 工具栏: 页签(简洁线式) + 搜索 ============ */
 .toolbar {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 10px 14px 0;
-  background: #fff;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px 0;
+  background: var(--bg);
 }
 .tabs {
   display: flex;
-  align-self: flex-start;
-  gap: 4px;
-  background: #edf2f7;
-  padding: 3px;
-  border-radius: 9px;
+  gap: 2px;
+  align-self: flex-end;
 }
 .tab {
+  position: relative;
   border: none;
   background: transparent;
-  padding: 5px 12px;
-  font-size: 12.5px;
-  border-radius: 7px;
+  padding: 7px 12px;
+  font-size: 13px;
+  border-radius: var(--radius-s) var(--radius-s) 0 0;
   cursor: pointer;
-  color: #718096;
-  transition: background 0.15s, color 0.15s;
+  color: var(--text-muted);
+  transition: color 0.15s var(--ease-out);
 }
-.tab:hover { color: #2d3748; }
+.tab:hover { color: var(--text-strong); }
 .tab.active {
-  background: #fff;
-  color: #2c3e50;
+  color: var(--text-strong);
   font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+.tab.active::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -2px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
 }
 .count {
-  font-size: 10.5px;
-  opacity: 0.65;
-  margin-left: 2px;
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-left: 5px;
+  font-weight: 500;
 }
+.tab.active .count { color: var(--accent); }
+
 .search-wrap {
   position: relative;
   flex: 1;
   min-width: 0;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 .search-icon {
   position: absolute;
-  left: 14px;
+  left: 12px;
   top: 50%;
   transform: translateY(-50%);
-  width: 14px;
-  height: 14px;
-  color: #8fa3b8;
+  width: 15px;
+  height: 15px;
+  color: var(--text-faint);
   pointer-events: none;
 }
 .search {
   width: 100%;
-  border: 1.5px solid #d5e0ec;
-  /* 胶囊形(半圆端):padding 左右相应加大,避开弧边压迫文字 */
-  border-radius: 999px;
-  padding: 9px 16px 9px 38px;
-  font-size: 13.5px;
-  background: #f7fafc;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-m);
+  padding: 8px 14px 8px 36px;
+  font-size: 13px;
+  background: var(--surface);
   outline: none;
   transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    background-color 0.2s ease;
+    border-color 0.15s var(--ease-out),
+    box-shadow 0.15s var(--ease-out),
+    background-color 0.15s var(--ease-out);
 }
-.search:hover {
-  border-color: #b9cbdf;
-}
+.search::placeholder { color: var(--text-faint); }
+.search:hover { border-color: var(--border-strong); }
 .search:focus {
-  background: #fff;
-  border-color: #4a90d9;
-  box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.15);
+  border-color: var(--accent);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+/* ============ 卡片区 ============ */
 .board {
   flex: 1;
   overflow-y: auto;
-  /* 底部预留 76px,避免最后一张卡片被悬浮新建按钮遮挡 */
-  padding: 14px 14px 76px;
+  padding: 8px 18px 84px;
   scrollbar-width: none;
 }
-.board::-webkit-scrollbar {
-  display: none;
-}
+.board::-webkit-scrollbar { display: none; }
 .empty {
   text-align: center;
-  margin-top: 24vh;
-  color: #a0aec0;
+  margin-top: 22vh;
+  color: var(--text-faint);
   font-size: 14px;
   line-height: 2;
 }
 .empty-hint {
   font-size: 12.5px;
+  color: var(--text-faint);
 }
 
 .list {
@@ -392,8 +414,7 @@ html, body, #app { margin: 0; height: 100%; }
   gap: 12px;
 }
 
-/* 悬浮新建:主按钮白底圆形,展开时"＋"旋转 45° 变"✕";
-   双胶囊白底彩描边,延续绿=待办/紫=便签的色彩语义,错峰弹出 */
+/* ============ 悬浮新建 ============ */
 .fab-backdrop {
   position: absolute;
   inset: 0;
@@ -401,8 +422,8 @@ html, body, #app { margin: 0; height: 100%; }
 }
 .fab-area {
   position: absolute;
-  right: 16px;
-  bottom: 16px;
+  right: 18px;
+  bottom: 18px;
   z-index: 50;
   display: flex;
   flex-direction: column;
@@ -410,25 +431,30 @@ html, body, #app { margin: 0; height: 100%; }
   gap: 10px;
 }
 .fab-main {
-  width: 48px;
-  height: 48px;
+  width: 50px;
+  height: 50px;
   border-radius: 50%;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  background: #fff;
-  color: #2c3e50;
+  border: none;
+  background: var(--accent);
+  color: #fff;
   cursor: pointer;
   display: grid;
   place-items: center;
-  box-shadow: 0 6px 18px rgba(45, 55, 72, 0.18);
-  transition: transform 0.15s ease, box-shadow 0.2s ease;
+  box-shadow: 0 8px 24px var(--accent-line);
+  transition:
+    transform 0.15s var(--ease-out),
+    box-shadow 0.2s var(--ease-out),
+    background-color 0.15s var(--ease-out);
+  transform-origin: bottom right;
 }
 .fab-main:hover {
-  transform: scale(1.06);
-  box-shadow: 0 8px 22px rgba(45, 55, 72, 0.24);
+  transform: scale(1.06) ;
+  background: var(--accent-strong);
+  box-shadow: 0 10px 28px var(--accent-line);
 }
 .fab-main:active { transform: scale(0.94); }
 .fab-main svg {
-  transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+  transition: transform 0.2s var(--ease-in-out);
 }
 .fab-area.open .fab-main svg {
   transform: rotate(45deg);
@@ -436,44 +462,43 @@ html, body, #app { margin: 0; height: 100%; }
 .fab-opt {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  border: none;
+  gap: 5px;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 9px 16px;
+  padding: 8px 15px;
   font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--surface);
   opacity: 0;
-  transform: translateY(12px) scale(0.85);
+  transform: translateY(12px) scale(0.9);
   pointer-events: none;
+  box-shadow: var(--shadow-m);
   transition:
-    opacity 0.16s ease,
-    transform 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2),
-    background-color 0.15s ease;
+    opacity 0.16s var(--ease-out),
+    transform 0.22s var(--ease-out),
+    background-color 0.15s var(--ease-out),
+    color 0.15s var(--ease-out);
 }
 .fab-area.open .fab-opt {
   opacity: 1;
   transform: none;
   pointer-events: auto;
 }
-/* 便签胶囊比待办晚 50ms 弹出,收起时无延迟一起退场 */
 .fab-area.open .fab-opt.note {
   transition-delay: 0.05s;
 }
 .fab-opt:active { transform: scale(0.94); }
 .fab-opt.todo {
-  color: #047857;
-  box-shadow:
-    inset 0 0 0 1.5px rgba(4, 120, 87, 0.35),
-    0 4px 14px rgba(45, 55, 72, 0.14);
+  color: var(--todo);
+  background: var(--todo-soft);
+  border-color: var(--todo-soft);
 }
-.fab-opt.todo:hover { background: rgba(174, 240, 213, 0.45); }
+.fab-opt.todo:hover { background: rgba(16, 185, 129, 0.2); }
 .fab-opt.note {
-  color: #6d28d9;
-  box-shadow:
-    inset 0 0 0 1.5px rgba(109, 40, 217, 0.3),
-    0 4px 14px rgba(45, 55, 72, 0.14);
+  color: var(--note);
+  background: var(--note-soft);
+  border-color: var(--note-soft);
 }
-.fab-opt.note:hover { background: rgba(228, 211, 252, 0.45); }
+.fab-opt.note:hover { background: rgba(139, 92, 246, 0.2); }
 </style>

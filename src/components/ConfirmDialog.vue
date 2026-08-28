@@ -42,47 +42,51 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(20, 30, 45, 0.4);
+  background: rgba(31, 39, 51, 0.36);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
   display: grid;
   place-items: center;
   z-index: 200;
-  animation: fade-in 0.15s ease;
+  animation: fade-in 0.15s var(--ease-out);
 }
 @keyframes fade-in {
   from { opacity: 0; }
 }
 .dialog {
   width: min(320px, 86vw);
-  background: #fff;
-  border-radius: 14px;
-  padding: 22px 20px 18px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  padding: 24px 22px 20px;
+  box-shadow: var(--shadow-l);
   text-align: center;
-  animation: pop-in 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  animation: pop-in 0.2s var(--ease-out);
 }
 @keyframes pop-in {
-  from { transform: scale(0.94) translateY(10px); opacity: 0; }
+  from { transform: scale(0.95) translateY(8px); opacity: 0; }
 }
 .icon {
-  width: 44px;
-  height: 44px;
-  margin: 0 auto 12px;
+  width: 46px;
+  height: 46px;
+  margin: 0 auto 14px;
   border-radius: 50%;
-  background: #fff5f5;
-  color: #e53e3e;
+  background: var(--danger-soft);
+  color: var(--danger);
   display: grid;
   place-items: center;
 }
 h3 {
   margin: 0 0 6px;
   font-size: 15.5px;
-  color: #2c3e50;
+  font-weight: 600;
+  color: var(--text-strong);
 }
 p {
-  margin: 0 0 18px;
+  margin: 0 0 20px;
   font-size: 13px;
   line-height: 1.7;
-  color: #718096;
+  color: var(--text-muted);
 }
 .actions {
   display: flex;
@@ -91,21 +95,25 @@ p {
 .d-btn {
   flex: 1;
   border: none;
-  border-radius: 9px;
+  border-radius: var(--radius-m);
   padding: 9px 0;
   font-size: 13.5px;
   cursor: pointer;
-  transition: background 0.15s, transform 0.1s;
+  transition:
+    background 0.15s var(--ease-out),
+    transform 0.08s var(--ease-out),
+    box-shadow 0.15s var(--ease-out);
 }
 .d-btn:active { transform: scale(0.97); }
 .d-btn.cancel {
-  background: #edf2f7;
-  color: #4a5568;
+  background: var(--surface-2);
+  color: var(--text);
 }
-.d-btn.cancel:hover { background: #e2e8f0; }
+.d-btn.cancel:hover { background: var(--bg-soft); }
 .d-btn.danger {
-  background: #e53e3e;
+  background: var(--danger);
   color: #fff;
+  box-shadow: 0 4px 12px var(--danger-soft);
 }
-.d-btn.danger:hover { background: #c53030; }
+.d-btn.danger:hover { background: #d6363b; }
 </style>

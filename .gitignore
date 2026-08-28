@@ -14,6 +14,7 @@ dist-ssr
 
 # 项目文档(仅本地保留方案稿;solution 修复记录随仓库分发)
 docs/
+skills/
 
 # Editor directories and files
 .vscode/*

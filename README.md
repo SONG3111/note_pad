@@ -1,11 +1,12 @@
-# note pad
+# 灵感便签
 
-一款轻量的随手记录软件:记 idea、列待办、多端同步,桌面端支持贴边隐藏。
+一款轻量的随手记录软件:记 idea、列待办、多端同步,桌面端支持贴边隐藏。界面采用清新简约风格,专注于低干扰地捕捉转瞬即逝的灵感。
 
 ![Tauri](https://img.shields.io/badge/Tauri-2.x-blue) ![Vue](https://img.shields.io/badge/Vue-3.x-green) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20iOS%20%7C%20Android-lightgrey)
 
 ## ✨ 功能特性
 
+- **清新简约界面**:柔和暖白基调 + 青绿强调色,统一设计 token、克制动效,兼顾美观与低干扰
 - **便签与待办**:纯想法用便签,清单事项用待办;待办可勾选、带进度条
 - **智能排序**:置顶优先,其余按时间倒序;「全部 / 待办 / 便签」分类切换
 - **贴边隐藏**(Windows):窗口拖到屏幕左/右边缘自动收起成 6px 露出条,鼠标靠近丝滑弹出

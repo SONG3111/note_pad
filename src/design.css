@@ -1,0 +1,87 @@
+/* ============================================================
+   全局设计 Token —— 清新简约 (Fresh Minimal)
+   main.ts 引入, 主窗口 (App.vue) 与独立便签窗 (NoteWindowApp)
+   各自 webview 内均可复用。功能不变, 仅统一样式基调。
+   ============================================================ */
+
+:root {
+  /* 色彩基调: 柔和暖白底 + 分层灰阶 */
+  --bg: #f4f6f8;            /* 主背景 */
+  --bg-soft: #eef1f5;       /* 次级背景 */
+  --surface: #ffffff;       /* 卡片/面板 */
+  --surface-2: #f8fafc;     /* 输入/内嵌 */
+
+  /* 文字层级 */
+  --text-strong: #1f2733;   /* 标题 */
+  --text: #3a4553;          /* 正文 */
+  --text-muted: #6b7686;    /* 次要 */
+  --text-faint: #98a3b3;    /* 弱化 */
+
+  /* 边框与分隔 */
+  --border: #e3e8ef;
+  --border-strong: #d3dbe4;
+
+  /* 清新强调色: 品牌青绿 */
+  --accent: #18a999;
+  --accent-strong: #0e8f80;
+  --accent-soft: rgba(24, 169, 153, 0.12);
+  --accent-line: rgba(24, 169, 153, 0.28);
+
+  /* 语义色: 延续"绿=待办 / 紫=便签"的色彩语义 */
+  --todo: #10b981;
+  --todo-soft: rgba(16, 185, 129, 0.12);
+  --note: #8b5cf6;
+  --note-soft: rgba(139, 92, 246, 0.12);
+  --danger: #e5484d;
+  --danger-soft: rgba(229, 72, 77, 0.1);
+
+  /* 圆角 */
+  --radius-s: 8px;
+  --radius-m: 12px;
+  --radius-l: 16px;
+
+  /* 阴影: 轻盈分层 */
+  --shadow-s: 0 1px 2px rgba(31, 39, 51, 0.04);
+  --shadow-m: 0 4px 12px rgba(31, 39, 51, 0.06);
+  --shadow-l: 0 12px 32px rgba(31, 39, 51, 0.1);
+
+  /* 缓动曲线 (引用 emil-design-eng 的强缓出) */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-synthesis: none;
+}
+
+body {
+  color: var(--text);
+  background: var(--bg);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* 减少动态效果偏好: 关闭位移型动效, 保留淡变 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

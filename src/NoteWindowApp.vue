@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -271,37 +271,40 @@ html, body, #app {
   background: transparent;
   overflow: hidden;
 }
+body {
+  background: transparent;
+}
 </style>
 
 <style scoped>
 .nwin {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 8px);
-  margin: 4px;
+  height: calc(100vh - 10px);
+  margin: 5px;
   background: var(--card-color);
-  border-radius: 14px;
+  border-radius: 16px;
   overflow: hidden;
   box-shadow:
-    inset 0 0 0 1px rgba(0, 0, 0, 0.08),
-    0 6px 24px -8px rgba(45, 55, 72, 0.35);
-  font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    inset 0 0 0 1px rgba(0, 0, 0, 0.05),
+    0 10px 30px -10px rgba(31, 39, 51, 0.4);
 }
 .bar {
   flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 8px 4px 14px;
-  background: rgba(255, 255, 255, 0.65);
+  padding: 6px 10px 6px 16px;
+  background: rgba(255, 255, 255, 0.72);
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
   user-select: none;
 }
 .dot {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  background: #059669;
+  background: var(--todo);
+  box-shadow: 0 0 0 3px var(--todo-soft);
 }
 .tools {
   display: flex;
@@ -310,26 +313,28 @@ html, body, #app {
 .tool-btn {
   border: none;
   background: transparent;
-  width: 26px;
-  height: 24px;
-  border-radius: 6px;
+  width: 27px;
+  height: 25px;
+  border-radius: var(--radius-s);
   cursor: pointer;
-  color: #718096;
+  color: var(--text-muted);
   display: grid;
   place-items: center;
   transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
+    background-color 0.15s var(--ease-out),
+    color 0.15s var(--ease-out),
+    transform 0.1s var(--ease-out);
 }
+.tool-btn:active { transform: scale(0.92); }
 .tool-btn svg { display: block; }
-.tool-btn:hover { background: #edf2f7; color: #2d3748; }
-.tool-btn.active { background: #d1fae5; color: #047857; }
-.tool-btn.danger:hover { background: #fee2e2; color: #c53030; }
-.tool-btn.close:hover { background: #2d3748; color: #fff; }
+.tool-btn:hover { background: var(--bg-soft); color: var(--text-strong); }
+.tool-btn.active { background: var(--todo-soft); color: var(--todo); }
+.tool-btn.danger:hover { background: var(--danger-soft); color: var(--danger); }
+.tool-btn.close:hover { background: #374151; color: #fff; }
 
 .missing {
   margin: auto;
-  color: #a0aec0;
+  color: var(--text-faint);
   font-size: 13px;
 }
 
@@ -337,7 +342,7 @@ html, body, #app {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 10px 16px 14px;
+  padding: 12px 18px 16px;
   overflow: hidden;
   min-height: 0;
 }
@@ -348,7 +353,7 @@ html, body, #app {
   background: transparent;
   font-size: 16px;
   font-weight: 600;
-  color: #2c3e50;
+  color: var(--text-strong);
   padding: 4px 0 8px;
 }
 .content-input {
@@ -360,7 +365,7 @@ html, body, #app {
   resize: none;
   font-size: 13.5px;
   line-height: 1.7;
-  color: #34495e;
+  color: var(--text);
   font-family: inherit;
 }
 .todo-editor {
@@ -388,19 +393,19 @@ html, body, #app {
 .stats-bar {
   flex: 1;
   height: 4px;
-  background: rgba(0, 0, 0, 0.08);
-  border-radius: 2px;
+  background: color-mix(in srgb, var(--card-color) 40%, var(--border-strong));
+  border-radius: 999px;
   overflow: hidden;
 }
 .stats-fill {
   height: 100%;
-  background: #059669;
-  border-radius: 2px;
-  transition: width 0.25s ease;
+  background: var(--todo);
+  border-radius: 999px;
+  transition: width 0.25s var(--ease-out);
 }
 .stats-text {
   font-size: 11.5px;
-  color: #718096;
+  color: var(--text-muted);
   white-space: nowrap;
 }
 .item-row {
@@ -417,43 +422,44 @@ html, body, #app {
   outline: none;
   background: transparent;
   font-size: 13.5px;
-  color: #34495e;
+  color: var(--text);
   padding: 4px 2px;
   border-bottom: 1px dashed transparent;
+  transition: border-color 0.15s var(--ease-out);
 }
-.item-text:hover, .item-text:focus { border-bottom-color: #cbd5e0; }
-.item-text.done { text-decoration: line-through; color: #a0aec0; }
+.item-text:hover, .item-text:focus { border-bottom-color: var(--border-strong); }
+.item-text.done { text-decoration: line-through; color: var(--text-faint); }
 .row-del {
   border: none;
   background: transparent;
-  color: #c0c8d4;
+  color: var(--text-faint);
   cursor: pointer;
   opacity: 0;
   width: 20px;
   height: 20px;
-  border-radius: 6px;
+  border-radius: var(--radius-s);
   display: grid;
   place-items: center;
   transition:
-    opacity 0.15s ease,
-    color 0.15s ease,
-    background-color 0.15s ease;
+    opacity 0.15s var(--ease-out),
+    color 0.15s var(--ease-out),
+    background-color 0.15s var(--ease-out);
 }
 .item-row:hover .row-del { opacity: 1; }
-.row-del:hover { color: #e53e3e; background: rgba(229, 62, 62, 0.08); }
+.row-del:hover { color: var(--danger); background: var(--danger-soft); }
 .new-item {
   width: 100%;
   flex: none;
   border: none;
   outline: none;
   background: rgba(255, 255, 255, 0.6);
-  border-radius: 8px;
+  border-radius: var(--radius-s);
   font-size: 13px;
-  color: #34495e;
+  color: var(--text);
   padding: 8px 10px;
   margin-top: 6px;
 }
-.new-item::placeholder { color: #a0aec0; }
+.new-item::placeholder { color: var(--text-faint); }
 
 .colors {
   display: flex;
@@ -465,10 +471,16 @@ html, body, #app {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  border: 2px solid #1a202c;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px var(--border-strong);
   cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition:
+    transform 0.15s var(--ease-out),
+    box-shadow 0.15s var(--ease-out);
 }
 .color-dot:hover { transform: scale(1.15); }
-.color-dot.selected { box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.45); }
+.color-dot.selected {
+  box-shadow: 0 0 0 2px var(--accent);
+  border-color: var(--accent);
+}
 </style>

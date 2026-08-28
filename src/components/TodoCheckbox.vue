@@ -56,24 +56,24 @@ function onChange(e: Event) {
   width: 18px;
   height: 18px;
   border-radius: 6px;
-  border: 2px solid #cbd5e0;
-  background: #fff;
+  border: 2px solid var(--border-strong);
+  background: var(--surface);
   display: grid;
   place-items: center;
   transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    transform 0.1s ease;
+    background-color 0.15s var(--ease-out),
+    border-color 0.15s var(--ease-out),
+    box-shadow 0.15s var(--ease-out),
+    transform 0.1s var(--ease-out);
 }
 .cb-wrap:hover .cb-box {
-  border-color: #94a3b8;
+  border-color: var(--text-faint);
 }
 .cb-input:active + .cb-box {
   transform: scale(0.9);
 }
 .cb-input:focus-visible + .cb-box {
-  box-shadow: 0 0 0 3px rgba(4, 120, 87, 0.22);
+  box-shadow: 0 0 0 3px var(--todo-soft);
 }
 .cb-check {
   width: 11px;
@@ -83,12 +83,12 @@ function onChange(e: Event) {
   opacity: 0;
   transform: scale(0.25);
   transition:
-    opacity 0.15s cubic-bezier(0.2, 0, 0, 1),
-    transform 0.18s cubic-bezier(0.2, 0, 0, 1);
+    opacity 0.15s var(--ease-in-out),
+    transform 0.18s var(--ease-in-out);
 }
 .cb-input:checked + .cb-box {
-  background-color: #059669;
-  border-color: #059669;
+  background-color: var(--todo);
+  border-color: var(--todo);
 }
 .cb-input:checked + .cb-box .cb-check {
   opacity: 1;
