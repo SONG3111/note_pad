@@ -75,7 +75,7 @@ async fn detach_note_window(
             .unwrap_or(1.0);
 
         let win = tauri::WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
-            .title("note pad")
+            .title("灵感便签")
             .inner_size(w, h)
             .position(x / scale, y / scale)
             .decorations(false)
@@ -232,12 +232,12 @@ pub fn run() {
                 }
 
                 let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
-                let quit = MenuItem::with_id(app, "quit", "退出 note pad", true, None::<&str>)?;
+                let quit = MenuItem::with_id(app, "quit", "退出灵感便签", true, None::<&str>)?;
                 let menu = Menu::with_items(app, &[&show, &quit])?;
                 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
                 tauri::tray::TrayIconBuilder::with_id("main-tray")
                     .icon(app.default_window_icon().expect("missing icon").clone())
-                    .tooltip("note pad")
+                    .tooltip("灵感便签")
                     .menu(&menu)
                     .show_menu_on_left_click(false)
                     .on_menu_event(|app, event| match event.id.as_ref() {

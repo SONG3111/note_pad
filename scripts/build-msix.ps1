@@ -1,9 +1,9 @@
-# ============================================================
-# Note Pad - Build MSIX package script (Windows)
+﻿# ============================================================
+# 灵感便签 (Note Pad) - Build MSIX package script (Windows)
 #
-# NOTE: ASCII-only source. PowerShell 5.1 misreads BOM-less UTF-8
-#       Chinese and corrupts variable parsing, so keep every
-#       string ASCII.
+# NOTE: This script CONTAINS Chinese strings (DisplayName/Description).
+#       It MUST be saved as UTF-8 WITH BOM. PowerShell 5.1 misreads
+#       BOM-less UTF-8 Chinese and corrupts variable parsing.
 #
 # Purpose: produce a local-site/installation MSIX for testing.
 #
@@ -88,8 +88,8 @@ $manifest = @"
             Publisher="$Publisher"
             Version="$VersionFull" />
   <Properties>
-    <DisplayName>Note Pad</DisplayName>
-    <PublisherDisplayName>NotePadDev</PublisherDisplayName>
+    <DisplayName>灵感便签</DisplayName>
+    <PublisherDisplayName>Qulv Studio</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
   <Dependencies>
@@ -101,8 +101,8 @@ $manifest = @"
   <Applications>
     <Application Id="App" Executable="$AppExeName" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="Note Pad"
-        Description="A lightweight note and todo app with edge snap."
+        DisplayName="灵感便签"
+        Description="轻量级便签与待办应用，支持边缘贴靠。"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">
@@ -119,7 +119,14 @@ $manifest = @"
 </Package>
 "@
 
-$manifest | Set-Content -Path (Join-Path $Stage "AppxManifest.xml") -Encoding UTF8
+$manifestPath = Join-Path $Stage "AppxManifest.xml"
+$manifest | Set-Content -Path $manifestPath -Encoding UTF8
+
+# Guard against silent mojibake: if this script was saved without a
+# UTF-8 BOM, PowerShell 5.1 corrupts the Chinese strings above.
+if (-not (Select-String -Path $manifestPath -Pattern "灵感便签" -Quiet)) {
+  throw "Manifest missing Chinese DisplayName - the script file must be saved as UTF-8 with BOM"
+}
 
 # ---- 3. pack ----
 Write-Host "==> packing..."

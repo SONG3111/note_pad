@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "note pad",
+        "title": "灵感便签",
         "width": 400,
         "height": 720,
         "minWidth": 320,
