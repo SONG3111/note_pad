@@ -234,13 +234,18 @@ watch(allDone, (v, was) => {
 .todo-area {
   margin-top: 4px;
 }
-/* 全部完成:待办区集体轻微缩放脉冲 */
-.todo-area.pop {
-  animation: nc-todo-pop 0.4s var(--ease-in-out);
+/* 全部完成:进度条脉动一下,与顶层庆祝动画呼应。
+   脉动只做在进度条(纯色块,无文字)上:transform:scale 对含文字区域会造成
+   位图缩放式模糊,纯色块没有这个问题;文字保持原生渲染,永远清晰 */
+.todo-area.pop .progress-bar {
+  animation: nc-progress-pop 0.45s var(--ease-in-out);
 }
-@keyframes nc-todo-pop {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.02); }
+@keyframes nc-progress-pop {
+  0%, 100% { transform: scaleY(1); }
+  50% {
+    transform: scaleY(1.2);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 45%, transparent);
+  }
 }
 .todo-row {
   display: flex;

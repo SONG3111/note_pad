@@ -1,23 +1,32 @@
 ## 目标
 
-产品显示名统一改为中文「灵感便签」；内部英文标识（exe 名 note_pad.exe、identifier、Cargo 包名）保持不变。PublisherDisplayName 改为 **Qulv Studio**（按你的最新要求）。
+重新设计「全部完成! 🎉」徽章：**居中弹簧入场 + 光环扩散**，样式为**磨砂玻璃 + 绿描边**。彩带雨、音效、冷却逻辑不变。
 
-## 修改清单
+## 设计规格
 
-1. **src-tauri/tauri.conf.json**：窗口 `title` → `"灵感便签"`（productName/identifier 不变）
-2. **src-tauri/src/lib.rs**（已扫描，仅 3 处）：L78 `.title("灵感便签")`；L235 `"退出灵感便签"`；L240 `.tooltip("灵感便签")`
-3. **index.html**：`<title>灵感便签</title>`
-4. **scripts/build-msix.ps1**：
-   - `<DisplayName>灵感便签</DisplayName>`、`VisualElements DisplayName="灵感便签"`
-   - `Description` → `"轻量级便签与待办应用，支持边缘贴靠。"`
-   - `<PublisherDisplayName>Qulv Studio</PublisherDisplayName>`
-   - 头部注释更新：含中文，必须 UTF-8 with BOM 保存
-   - 打包后加防乱码自检（Select-String 校验清单含「灵感便签」，否则 throw）
-   - 编辑完成后为 .ps1 补写 UTF-8 BOM
-   - `$AppExeName` 保持 note_pad.exe；签名证书/Identity 相关不动
-5. **docs/方案/MSIX打包与上架速查.md**：轻量说明「显示名中文、内部标识英文」
+**位置与层级**
+- 徽章从顶部 40px 移到**窗口正中**（`top:50%; left:50%` 居中），在彩带雨中央出现，庆祝感最强；瞬时性展示不遮挡内容（1 秒后即离场）
+- `z-index: 10001` 保持在彩带 canvas（9999）之上
+
+**样式（磨砂玻璃 + 绿描边）**
+- 背景 `rgba(255,255,255,0.72)` + `backdrop-filter: blur(10px) saturate(1.3)`——彩带从徽章后面经过时呈磨砂虚化，质感明显
+- 描边：1.5px 绿色半透明描边（`rgba(4,120,87,0.35)`），配大圆角胶囊形（999px）
+- 文字：绿色 `#047857`、17px、700 加粗，🎉 emoji 保留
+- 柔和大阴影 `0 8px 32px rgba(4,120,87,0.2)` 增加悬浮感
+- 内边距加大（约 10px 22px），比旧徽章更醒目
+
+**入场（弹簧 + 光环，0.15s 延迟起）**
+- 弹簧关键帧：`scale 0.6(透明) → 1.08 → 0.97 → 1`，总 0.5s，过冲回弹有生命感
+- 光环：徽章的 `::before` / `::after` 两个圆环，绿色描边，从徽章边缘 `scale 0.9 → 1.9` 扩散 + 淡出，0.7s 一个、错峰 0.15s，共两圈涟漪
+- 光环用 overflow 可见的伪元素实现，不额外加 DOM
+
+**离场（2.0s 起）**
+- 上飘 20px + 淡出 0.4s（translateY 配合居中定位用 `calc(-50% - 20px)`），2.4s 完成，2.6s 节点移除（现有 `BADGE_LIFETIME_MS` 不变）
+
+## 修改文件
+- **`src/celebrate.css`**：重写 `.celebrate-badge`（居中、磨砂、弹簧、光环、离场），全部纯 CSS
+- **`src/celebrate.ts`**：无需改动（徽章仍由 `showBadge()` 创建同一个 class）
 
 ## 验证
-- 全量 `grep "note pad\|Note Pad"` 残留检查（排除有意保留的内部标识）
-- 确认 build-msix.ps1 头部为 UTF-8 BOM
-- 你本机验证：`npm run tauri dev` 看标题/托盘；重跑 build-msix.ps1 后安装看开始菜单显示名
+- `npm run build` 通过
+- 本机勾完最后一项：徽章在窗口正中弹簧弹出、两圈光环扩散、磨砂底下彩带隐约可见、2 秒后上飘淡出；无模糊残影
