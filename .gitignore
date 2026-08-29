@@ -26,3 +26,13 @@ skills/
 *.njsproj
 *.sln
 *.sw?
+
+# Tauri 构建产物
+src-tauri/target/
+
+# MSIX 打包产物(含私钥的 pfx 严禁提交)
+*.msix
+*.appx
+*.msixbundle
+*.pfx
+*.cer
