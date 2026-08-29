@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -23,6 +23,7 @@ const onTop = ref(false);
 const newItemText = ref("");
 const confirmDelete = ref(false);
 const missing = ref(false);
+const scrollAreaRef = ref<HTMLElement | null>(null);
 let unlistenChanged: UnlistenFn | null = null;
 
 onMounted(async () => {
@@ -98,6 +99,11 @@ async function addOnEnter() {
     const item = await invoke<TodoItem>("add_todo_item", { noteId, text: t });
     items.value.push(item);
     newItemText.value = "";
+    // 项多时列表已滚动:滚到底,让新添加的项立即可见
+    nextTick(() => {
+      const area = scrollAreaRef.value;
+      if (area) area.scrollTop = area.scrollHeight;
+    });
   } catch {}
 }
 
@@ -221,7 +227,7 @@ const progress = computed(() =>
       ></textarea>
 
       <div v-else class="todo-editor">
-        <div class="scroll-area">
+        <div ref="scrollAreaRef" class="scroll-area">
           <div class="todo-stats">
             <div class="stats-bar"><div class="stats-fill" :style="{ width: progress + '%' }"></div></div>
             <span class="stats-text">{{ doneCount }}/{{ items.length }}</span>

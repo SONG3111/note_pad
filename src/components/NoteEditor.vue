@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onBeforeUnmount } from "vue";
+import { ref, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { NOTE_COLORS, type NoteWithItems } from "../types";
 import TodoCheckbox from "./TodoCheckbox.vue";
 
@@ -20,6 +20,7 @@ const title = ref(props.note.title ?? "");
 const content = ref(props.note.content ?? "");
 const color = ref(props.note.color);
 const newItemText = ref("");
+const todoListRef = ref<HTMLElement | null>(null);
 
 let saveTimer: number | undefined;
 let dirty = false;
@@ -55,6 +56,11 @@ function addOnEnter() {
   if (!t) return;
   emit("addItem", t);
   newItemText.value = "";
+  // 输入框固定在底部,新项追加在列表末尾:回车后滚到底,保证新项立即可见
+  nextTick(() => {
+    const list = todoListRef.value;
+    if (list) list.scrollTop = list.scrollHeight;
+  });
 }
 
 function onItemBlur(e: Event, itemId: string) {
@@ -116,12 +122,14 @@ function close() {
       ></textarea>
 
       <div v-else class="todo-editor">
-        <div v-for="item in note.items" :key="item.id" class="item-row">
-          <TodoCheckbox :checked="item.checked" @change="emit('toggleItem', item.id, !item.checked)" />
-          <input class="item-text" :class="{ done: item.checked }" :value="item.text" @blur="onItemBlur($event, item.id)" />
-          <button class="row-del" title="删除此项" @click="emit('removeItem', item.id)">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-          </button>
+        <div ref="todoListRef" class="todo-list">
+          <div v-for="item in note.items" :key="item.id" class="item-row">
+            <TodoCheckbox :checked="item.checked" @change="emit('toggleItem', item.id, !item.checked)" />
+            <input class="item-text" :class="{ done: item.checked }" :value="item.text" @blur="onItemBlur($event, item.id)" />
+            <button class="row-del" title="删除此项" @click="emit('removeItem', item.id)">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
         </div>
         <input v-model="newItemText" class="new-item" placeholder="+ 添加待办,回车确认" @keydown.enter.prevent="addOnEnter" />
       </div>
@@ -147,7 +155,11 @@ function close() {
 .editor {
   width: min(560px, 92vw);
   max-height: 80vh;
-  overflow-y: auto;
+  /* 三段式布局:工具栏/标题固定,待办列表滚动,添加输入框固定贴底;
+     面板自身不滚动(overflow:hidden),滚动内容与滚动条都不会破坏四角圆角 */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-l);
@@ -233,11 +245,12 @@ function close() {
 }
 .content-input {
   width: 100%;
+  flex: 1;
   min-height: 220px;
   border: none;
   outline: none;
   background: transparent;
-  resize: vertical;
+  resize: none;
   font-size: 14px;
   line-height: 1.7;
   color: var(--text);
@@ -245,7 +258,23 @@ function close() {
   padding: 6px 0;
 }
 
-.todo-editor { margin-top: 6px; }
+.todo-editor {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+/* 待办项列表:唯一滚动区域,滚轮可用但滚动条不显示 */
+.todo-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.todo-list::-webkit-scrollbar {
+  display: none;
+}
 .item-row {
   display: flex;
   align-items: center;
@@ -297,6 +326,7 @@ function close() {
 }
 .new-item {
   width: 100%;
+  flex: none;
   border: none;
   outline: none;
   background: var(--surface-2);

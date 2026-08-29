@@ -1,32 +1,45 @@
 ## 目标
 
-重新设计「全部完成! 🎉」徽章：**居中弹簧入场 + 光环扩散**，样式为**磨砂玻璃 + 绿描边**。彩带雨、音效、冷却逻辑不变。
+待办编辑器（`NoteEditor.vue`）三条改进：
+1. **"+ 添加待办"输入框固定在编辑器底部**，待办项再多也始终可见
+2. **隐藏滚动条**（滚轮/触摸板滚动照常，只是不显示滚动条 UI）
+3. **统一编辑器四个圆角**：面板四角始终保持 `--radius-l` 一致，不再因滚动/滚动条出现直角或被裁切
 
-## 设计规格
+## 现状问题
 
-**位置与层级**
-- 徽章从顶部 40px 移到**窗口正中**（`top:50%; left:50%` 居中），在彩带雨中央出现，庆祝感最强；瞬时性展示不遮挡内容（1 秒后即离场）
-- `z-index: 10001` 保持在彩带 canvas（9999）之上
+- `.editor` 整个面板 `overflow-y: auto`：标题、待办列表、输入框一起滚 → 项多时输入框滚出视野
+- 滚动条占据面板右缘，把右侧两个圆角"顶掉"，且滚动时内容边缘让底部两角看起来是直角
 
-**样式（磨砂玻璃 + 绿描边）**
-- 背景 `rgba(255,255,255,0.72)` + `backdrop-filter: blur(10px) saturate(1.3)`——彩带从徽章后面经过时呈磨砂虚化，质感明显
-- 描边：1.5px 绿色半透明描边（`rgba(4,120,87,0.35)`），配大圆角胶囊形（999px）
-- 文字：绿色 `#047857`、17px、700 加粗，🎉 emoji 保留
-- 柔和大阴影 `0 8px 32px rgba(4,120,87,0.2)` 增加悬浮感
-- 内边距加大（约 10px 22px），比旧徽章更醒目
+## 修改内容（仅 `src/components/NoteEditor.vue`）
 
-**入场（弹簧 + 光环，0.15s 延迟起）**
-- 弹簧关键帧：`scale 0.6(透明) → 1.08 → 0.97 → 1`，总 0.5s，过冲回弹有生命感
-- 光环：徽章的 `::before` / `::after` 两个圆环，绿色描边，从徽章边缘 `scale 0.9 → 1.9` 扩散 + 淡出，0.7s 一个、错峰 0.15s，共两圈涟漪
-- 光环用 overflow 可见的伪元素实现，不额外加 DOM
+**1. 布局重构（编辑器分三段：固定头部 / 可滚动列表 / 固定底部输入框）**
+```
+.editor            display:flex; flex-direction:column; max-height:80vh;
+                   overflow:hidden  ← 面板自身不再滚动,四角圆角恒定
+  ├ .toolbar       固定(flex:none)
+  ├ .title-input   固定(flex:none)
+  ├ .todo-list     新增包裹层: flex:1; min-height:0; overflow-y:auto ← 只有待办项列表滚动
+  │   └ .item-row × N
+  └ .new-item      固定底部(flex:none),脱离滚动流,始终贴底可见
+```
+- 模板：给 `v-for` 的待办项外面包一层 `<div class="todo-list">`；`.new-item` 移到 `.todo-list` 外（仍在 `.todo-editor` 内）
+- 笔记型（`content-input` textarea）不受影响：面板 overflow 改 hidden 后其 `resize: vertical` 可能溢出，改为 `flex:1; min-height:220px; resize:none` 顺带修正
 
-**离场（2.0s 起）**
-- 上飘 20px + 淡出 0.4s（translateY 配合居中定位用 `calc(-50% - 20px)`），2.4s 完成，2.6s 节点移除（现有 `BADGE_LIFETIME_MS` 不变）
+**2. 隐藏滚动条（作用于新的 `.todo-list`）**
+```css
+.todo-list { scrollbar-width: none; }        /* 标准 */
+.todo-list::-webkit-scrollbar { display: none; }  /* WebView2/Chromium */
+```
 
-## 修改文件
-- **`src/celebrate.css`**：重写 `.celebrate-badge`（居中、磨砂、弹簧、光环、离场），全部纯 CSS
-- **`src/celebrate.ts`**：无需改动（徽章仍由 `showBadge()` 创建同一个 class）
+**3. 圆角统一**
+- `.editor` 保留 `border-radius: var(--radius-l)`，因 `overflow: hidden`，滚动内容与隐藏的滚动条都不会再破坏四角
+
+**4. 新增待办后自动滚到底部**
+- 输入框固定后，新项追加在列表末尾；在 `addOnEnter()` 里 `nextTick` 后把 `.todo-list` 的 `scrollTop` 设为 `scrollHeight`，保证回车后新项立即可见（与"输入框贴底"的体验一致）
+
+## 不改动
+- 工具栏、颜色点、删除按钮等其余 UI；App.vue/NoteWindowApp.vue 调用方式
 
 ## 验证
 - `npm run build` 通过
-- 本机勾完最后一项：徽章在窗口正中弹簧弹出、两圈光环扩散、磨砂底下彩带隐约可见、2 秒后上飘淡出；无模糊残影
+- 本机验证：创建待办 → 添加 15+ 项：输入框始终贴底、列表滚动无滚动条、面板四角圆角一致；回车添加后列表自动滚到最新项
