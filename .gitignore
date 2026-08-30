@@ -36,3 +36,9 @@ src-tauri/target/
 *.msixbundle
 *.pfx
 *.cer
+
+# E2E 测试:msedgedriver-tool 下载的驱动二进制不进库
+e2e/msedgedriver.exe
+
+# agent 工具锁文件(与 skills/ 同约定,仅本地)
+skills-lock.json

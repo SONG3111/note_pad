@@ -1,0 +1,62 @@
+# 灵感便签 自动化测试 CI
+# - 单元测试(ubuntu) + Rust 数据层测试(windows):push/PR 常跑
+# - E2E(tauri-driver 驱动真实窗口):仅手动触发,避免拖慢日常 CI
+name: tests
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_e2e:
+        description: "同时运行 E2E 冒烟"
+        type: boolean
+        default: false
+
+jobs:
+  unit:
+    name: Frontend unit (Vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - run: npm run test:unit
+
+  rust:
+    name: Rust data layer (cargo test)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-action@stable
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  e2e:
+    name: E2E smoke (tauri-driver)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_e2e }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-action@stable
+      - name: Install Edge WebDriver
+        shell: pwsh
+        run: |
+          cargo install --git https://github.com/chippers/msedgedriver-tool
+          & "$HOME/.cargo/bin/msedgedriver-tool.exe"
+      - name: Install tauri-driver
+        shell: pwsh
+        run: cargo install tauri-driver --locked
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - name: Build frontend (E2E 用 debug 版,仍需前端产物)
+        run: npm run build
+      - name: Run E2E smoke
+        working-directory: e2e
+        run: |
+          npm install
+          npm test
