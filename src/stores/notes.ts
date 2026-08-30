@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import type { NoteWithItems, NoteType, TodoItem } from "../types";
+import { dateKey } from "../types";
 import { celebrateAllDone } from "../celebrate";
 
 export type ViewFilter = "all" | "todo" | "note";
@@ -11,8 +12,14 @@ export const useNotesStore = defineStore("notes", () => {
   const loading = ref(false);
   const searchQuery = ref("");
   const viewFilter = ref<ViewFilter>("all");
+  // 日历日期筛选:本地时区 "YYYY-MM-DD",按记录创建日期过滤;null = 不筛选
+  const dateFilter = ref<string | null>(null);
   // 待办卡片的展开状态(id -> 是否展开),未记录的默认收起
   const expandedMap = ref<Record<string, boolean>>({});
+
+  function setDateFilter(v: string | null) {
+    dateFilter.value = v;
+  }
 
   function isExpanded(id: string): boolean {
     return expandedMap.value[id] ?? false;
@@ -26,6 +33,9 @@ export const useNotesStore = defineStore("notes", () => {
     let list = notes.value;
     if (viewFilter.value !== "all") {
       list = list.filter((n) => n.type === viewFilter.value);
+    }
+    if (dateFilter.value) {
+      list = list.filter((n) => dateKey(n.createdAt) === dateFilter.value);
     }
     const q = searchQuery.value.trim().toLowerCase();
     if (q) {
@@ -159,6 +169,8 @@ export const useNotesStore = defineStore("notes", () => {
     loading,
     searchQuery,
     viewFilter,
+    dateFilter,
+    setDateFilter,
     visible,
     isExpanded,
     setExpanded,

@@ -5,13 +5,21 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useNotesStore, type ViewFilter } from "./stores/notes";
-import type { NoteWithItems } from "./types";
+import { dateKey, formatDateLabel, type NoteWithItems } from "./types";
 import NoteCard from "./components/NoteCard.vue";
 import NoteEditor from "./components/NoteEditor.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
+import DatePicker from "./components/DatePicker.vue";
 
 const store = useNotesStore();
-const { visible: visibleNotes, notes: allNotes, loading, searchQuery, viewFilter } = storeToRefs(store);
+const {
+  visible: visibleNotes,
+  notes: allNotes,
+  loading,
+  searchQuery,
+  viewFilter,
+  dateFilter,
+} = storeToRefs(store);
 
 const editingId = ref<string | null>(null);
 const appWindow = getCurrentWindow();
@@ -89,6 +97,8 @@ async function newNote(type: "note" | "todo") {
   const created = await store.create(type);
   viewFilter.value = type;
   searchQuery.value = "";
+  // 新记录创建于今天:清掉日期筛选,否则用户建完看不到刚建的内容
+  store.setDateFilter(null);
   detached.value.delete(created.id);
   editingId.value = created.id;
 }
@@ -100,10 +110,19 @@ const filters: Array<{ key: ViewFilter; label: string }> = [
 ];
 
 function countOf(key: ViewFilter): number {
-  const pool = allNotes.value.filter(inBoard);
+  let pool = allNotes.value.filter(inBoard);
+  // 计数与列表用同一套日期筛选,避免"列表有数据、页签显示 0"的错位
+  if (dateFilter.value) {
+    pool = pool.filter((n) => dateKey(n.createdAt) === dateFilter.value);
+  }
   if (key === "all") return pool.length;
   return pool.filter((n) => n.type === key).length;
 }
+
+const isDateFiltering = computed(() => !!dateFilter.value);
+const dateFilterLabel = computed(() =>
+  dateFilter.value ? formatDateLabel(dateFilter.value) : ""
+);
 
 const emptyHint = computed(() => {
   if (viewFilter.value === "todo") return "暂无待办,添加任务来规划生活";
@@ -166,7 +185,9 @@ function closeEditor(isEmpty?: boolean) {
           <circle cx="11" cy="11" r="7" />
           <path d="M21 21l-4.35-4.35" />
         </svg>
-        <input v-model="searchQuery" class="search" type="search" placeholder="搜索便签、待办…" />
+        <input v-model="searchQuery" class="search" type="search" placeholder="搜索便签、待办" />
+        <!-- 日历筛选入口收在搜索框右端:不挤占页签/搜索宽度,面板向左展开完整可见 -->
+        <DatePicker />
       </div>
     </div>
 
@@ -178,6 +199,11 @@ function closeEditor(isEmpty?: boolean) {
         <template v-if="isSearching">
           没有匹配「{{ searchQuery }}」的记录
           <br /><span class="empty-hint">换个关键词试试,或清空搜索查看全部</span>
+        </template>
+        <!-- 日期筛选生效且该日期无记录:给出筛选语境的反馈与解除入口 -->
+        <template v-else-if="isDateFiltering">
+          {{ dateFilterLabel }} 暂无记录
+          <br /><span class="empty-hint">点工具栏的日历图标,「清除筛选」查看全部</span>
         </template>
         <template v-else>{{ emptyHint }}</template>
       </p>
@@ -308,7 +334,7 @@ body,
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   padding: 14px 18px 0;
   background: var(--bg);
 }
@@ -321,7 +347,7 @@ body,
   position: relative;
   border: none;
   background: transparent;
-  padding: 7px 12px;
+  padding: 7px 10px;
   font-size: 13px;
   border-radius: var(--radius-s) var(--radius-s) 0 0;
   cursor: pointer;
@@ -346,7 +372,7 @@ body,
 .count {
   font-size: 11px;
   color: var(--text-faint);
-  margin-left: 5px;
+  margin-left: 4px;
   font-weight: 500;
 }
 .tab.active .count { color: var(--accent); }
@@ -371,7 +397,8 @@ body,
   width: 100%;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-m);
-  padding: 8px 14px 8px 36px;
+  /* 右侧留出日历按钮的落位空间 */
+  padding: 8px 38px 8px 36px;
   font-size: 13px;
   background: var(--surface);
   outline: none;

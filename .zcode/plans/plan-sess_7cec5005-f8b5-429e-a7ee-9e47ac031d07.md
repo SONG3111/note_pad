@@ -1,45 +1,36 @@
-## 目标
+## 问题诊断
 
-待办编辑器（`NoteEditor.vue`）三条改进：
-1. **"+ 添加待办"输入框固定在编辑器底部**，待办项再多也始终可见
-2. **隐藏滚动条**（滚轮/触摸板滚动照常，只是不显示滚动条 UI）
-3. **统一编辑器四个圆角**：面板四角始终保持 `--radius-l` 一致，不再因滚动/滚动条出现直角或被裁切
+1. **日历面板显示不全**：主窗口固定 400px 宽。日历按钮在页签右侧（x≈150 起），面板 259px 宽从按钮处 `left:0` **向右**展开 → 右边缘伸出窗口外约 10~40px 被裁掉
+2. **按钮位置**：单独占一格挤压搜索框宽度，且视觉上突兀
 
-## 现状问题
+## 参照 skills/ 规范的整改方案
 
-- `.editor` 整个面板 `overflow-y: auto`：标题、待办列表、输入框一起滚 → 项多时输入框滚出视野
-- 滚动条占据面板右缘，把右侧两个圆角"顶掉"，且滚动时内容边缘让底部两角看起来是直角
+skills/ 下有 4 份设计工程规范（apple-design、emil-design-eng、animation-vocabulary、review-animations），与本问题直接相关的条款：
+- **弹层必须 origin-aware**：从触发器方向缩放（`transform-origin: top right`），不得从中心
+- 下拉类时长 150-250ms + 强 ease-out；禁止从 `scale(0)` 出现（0.95-0.97 起步）
+- 可按压元素必须有 `:active` 缩放反馈；reduced-motion 时降级为仅透明度过渡
 
-## 修改内容（仅 `src/components/NoteEditor.vue`）
+### 布局（窗口 400×720 不变）
 
-**1. 布局重构（编辑器分三段：固定头部 / 可滚动列表 / 固定底部输入框）**
-```
-.editor            display:flex; flex-direction:column; max-height:80vh;
-                   overflow:hidden  ← 面板自身不再滚动,四角圆角恒定
-  ├ .toolbar       固定(flex:none)
-  ├ .title-input   固定(flex:none)
-  ├ .todo-list     新增包裹层: flex:1; min-height:0; overflow-y:auto ← 只有待办项列表滚动
-  │   └ .item-row × N
-  └ .new-item      固定底部(flex:none),脱离滚动流,始终贴底可见
-```
-- 模板：给 `v-for` 的待办项外面包一层 `<div class="todo-list">`；`.new-item` 移到 `.todo-list` 外（仍在 `.todo-editor` 内）
-- 笔记型（`content-input` textarea）不受影响：面板 overflow 改 hidden 后其 `resize: vertical` 可能溢出，改为 `flex:1; min-height:220px; resize:none` 顺带修正
+- 日历按钮**收进搜索框右端内部**（Linear/Notion 的"筛选入口在搜索条内"模式）：
+  - 页签、搜索框宽度都不被挤压（旧方案插入独立按钮会吃掉 32px+gap，搜索框只剩 ~90px）
+  - 按钮天然靠右 → 面板锚定 `right: 0` **向左展开**，右缘与搜索框对齐（≈窗口内 382px 处），259px 宽完整落在窗口内
+  - `.search` 输入框加 `padding-right: 42px` 防止文字压住图标
+- 添加按钮（FAB）、页签布局无需变动
 
-**2. 隐藏滚动条（作用于新的 `.todo-list`）**
-```css
-.todo-list { scrollbar-width: none; }        /* 标准 */
-.todo-list::-webkit-scrollbar { display: none; }  /* WebView2/Chromium */
-```
+### 动效与细节（按 skills 修正）
 
-**3. 圆角统一**
-- `.editor` 保留 `border-radius: var(--radius-l)`，因 `overflow: hidden`，滚动内容与隐藏的滚动条都不会再破坏四角
+| 项 | Before | After |
+|---|---|---|
+| 面板展开 | `translateY(-4px)` + 0.15s | `scale(0.96)→1` + opacity，`transform-origin: top right`，0.16s 强 ease-out |
+| 按压反馈 | dp-btn/nav/act 无 `:active` | `:active { transform: scale(0.94-0.96) }`，0.12s |
+| reduced-motion | 未处理 | 面板动画降级为仅 opacity |
+| 按钮样式 | 32px 带边框独立按钮 | 28px 无边框图标按钮（hover 出浅底），激活态 accent-soft 底 + 勾标 |
 
-**4. 新增待办后自动滚到底部**
-- 输入框固定后，新项追加在列表末尾；在 `addOnEnter()` 里 `nextTick` 后把 `.todo-list` 的 `scrollTop` 设为 `scrollHeight`，保证回车后新项立即可见（与"输入框贴底"的体验一致）
-
-## 不改动
-- 工具栏、颜色点、删除按钮等其余 UI；App.vue/NoteWindowApp.vue 调用方式
+### 修改文件
+- `src/components/DatePicker.vue`：根节点改为绝对定位于搜索框内右端；面板右锚定 + origin-aware 动画 + `:active` 反馈 + reduced-motion 降级
+- `src/App.vue`：`<DatePicker />` 移入 `.search-wrap` 内部；`.search` 加 `padding-right`
 
 ## 验证
 - `npm run build` 通过
-- 本机验证：创建待办 → 添加 15+ 项：输入框始终贴底、列表滚动无滚动条、面板四角圆角一致；回车添加后列表自动滚到最新项
+- 400px 窗口内：面板完整可见、不遮搜索文字；筛选激活态清晰；按压/悬停反馈符合 skills 标准
