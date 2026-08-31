@@ -208,7 +208,7 @@ function close() {
 .tools { display: flex; gap: 6px; min-width: 0; }
 .tool-btn {
   border: none;
-  background: var(--surface-2);
+  background: transparent;
   width: 28px;
   height: 28px;
   flex: none;

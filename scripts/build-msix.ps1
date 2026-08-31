@@ -35,7 +35,7 @@ if (-not $env:MSIX_PUBLISHER) {
 }
 $Publisher = $env:MSIX_PUBLISHER
 
-$Version = "0.3.0"
+$Version = "0.4.0"
 
 $Root    = "src-tauri\target\release\bundle\msix"
 $Stage   = Join-Path $Root "stage"
