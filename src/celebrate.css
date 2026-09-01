@@ -1,6 +1,6 @@
 /* 全部完成庆祝效果:彩带由 canvas-confetti 自己管理 canvas(挂在 body 上,z-index 9999),
    徽章独立挂在 body 上、层级压过画布。
-   徽章设计:窗口正中,磨砂玻璃底 + 绿描边,弹簧过冲入场,双光环涟漪扩散,2s 起上飘淡出 */
+   徽章设计:窗口正中,暖纸胶囊 + 陶土描边 + 手写字,弹簧过冲入场,双光环涟漪扩散,2s 起上飘淡出 */
 
 .celebrate-badge {
   position: fixed;
@@ -9,20 +9,28 @@
   z-index: 10001;
   transform: translate(-50%, -50%) scale(0.6);
   opacity: 0;
-  font-size: 17px;
-  font-weight: 700;
-  color: #047857;
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(10px) saturate(1.3);
-  -webkit-backdrop-filter: blur(10px) saturate(1.3);
-  border: 1.5px solid rgba(4, 120, 87, 0.35);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-hand);
+  font-size: 18px;
+  font-weight: 400;
+  letter-spacing: 1px;
+  color: #a55835;
+  background: rgba(253, 250, 241, 0.92);
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  border: 1.5px solid rgba(188, 107, 67, 0.45);
   padding: 10px 22px;
-  border-radius: 999px;
-  box-shadow: 0 8px 32px rgba(4, 120, 87, 0.2);
+  border-radius: 14px 17px 13px 18px / 17px 13px 18px 14px;
+  box-shadow: 0 8px 32px rgba(94, 76, 52, 0.22);
   pointer-events: none;
   animation:
     cel-badge-spring 0.5s cubic-bezier(0.22, 1.2, 0.36, 1) 0.15s forwards,
     cel-badge-leave 0.4s ease-in 2s forwards;
+}
+.celebrate-badge svg {
+  display: block;
 }
 @keyframes cel-badge-spring {
   0% {
@@ -48,14 +56,14 @@
   }
 }
 
-/* 双光环涟漪:绿色描边圆环从徽章边缘向外扩散淡出,错峰两圈 */
+/* 双光环涟漪:陶土描边圆环从徽章边缘向外扩散淡出,错峰两圈 */
 .celebrate-badge::before,
 .celebrate-badge::after {
   content: "";
   position: absolute;
   inset: -1.5px;
-  border-radius: 999px;
-  border: 2px solid rgba(4, 120, 87, 0.55);
+  border-radius: 14px 17px 13px 18px / 17px 13px 18px 14px;
+  border: 2px solid rgba(188, 107, 67, 0.5);
   opacity: 0;
   pointer-events: none;
   animation: cel-badge-ripple 0.7s ease-out forwards;

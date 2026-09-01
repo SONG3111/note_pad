@@ -181,9 +181,9 @@ function closeEditor(isEmpty?: boolean) {
         </button>
       </div>
       <div class="search-wrap">
-        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-          <circle cx="11" cy="11" r="7" />
-          <path d="M21 21l-4.35-4.35" />
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M10.2 4.4c3.5-1.2 7 .6 7.8 3.8.7 3.1-1.6 6.2-5 6.9-3.4.6-6.7-1.4-7.4-4.5-.6-2.7 1.2-5.2 4.6-6.2z" />
+          <path d="M17.6 15.8c1.2 1.3 2.3 2.7 3.2 4" />
         </svg>
         <input v-model="searchQuery" class="search" type="search" placeholder="搜索便签、待办" />
         <!-- 日历筛选入口收在搜索框右端:不挤占页签/搜索宽度,面板向左展开完整可见 -->
@@ -244,7 +244,7 @@ function closeEditor(isEmpty?: boolean) {
       <button v-if="viewFilter !== 'note'" class="fab-opt todo" @click="fabCreate('todo')">＋ 待办</button>
       <button v-if="viewFilter !== 'todo'" class="fab-opt note" @click="fabCreate('note')">＋ 便签</button>
       <button class="fab-main" :title="fabOpen ? '收起' : '新建'" aria-label="新建" @click="fabOpen = !fabOpen">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 4.8c.25 4.6.32 9.5.15 14.5M4.8 12.15c4.7-.2 9.5-.15 14.4.2" /></svg>
       </button>
     </div>
 
@@ -270,37 +270,43 @@ body,
   height: 100vh;
   position: relative;
   color: var(--text);
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image: var(--grain);
 }
 
-/* ============ 顶部栏: 轻透、单发丝分隔 ============ */
+/* ============ 顶部栏: 手账封条, 让米纸底与纸纹贯通整个窗口 ============ */
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 10px 10px 10px 18px;
-  background: var(--surface);
+  background: transparent;
   border-bottom: 1px solid var(--border);
   z-index: 10;
   user-select: none;
 }
 .brand {
   margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.3px;
+  font-family: var(--font-hand);
+  font-size: 16.5px;
+  font-weight: 400;
+  letter-spacing: 1.5px;
   color: var(--text-strong);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
 }
+/* 品牌 logo: 一小截和纸胶带贴片 */
 .brand::before {
   content: "";
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  background: linear-gradient(135deg, var(--accent), var(--note));
-  box-shadow: var(--shadow-s);
+  width: 17px;
+  height: 12px;
+  border-radius: 2px;
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.4) 0 2px, transparent 2px 5px),
+    rgba(233, 200, 122, 0.72);
+  transform: rotate(-8deg);
+  box-shadow: 0 1px 2px rgba(94, 76, 52, 0.18);
 }
 .win-controls {
   display: flex;
@@ -330,13 +336,13 @@ body,
   color: #fff;
 }
 
-/* ============ 工具栏: 页签(简洁线式) + 搜索 ============ */
+/* ============ 工具栏: 页签(手账章节标签) + 搜索(小纸条) ============ */
 .toolbar {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 14px 18px 0;
-  background: var(--bg);
+  background: transparent;
 }
 .tabs {
   display: flex;
@@ -345,10 +351,12 @@ body,
 }
 .tab {
   position: relative;
+  z-index: 0;
   border: none;
   background: transparent;
   padding: 7px 10px;
-  font-size: 13px;
+  font-family: var(--font-hand);
+  font-size: 14px;
   border-radius: var(--radius-s) var(--radius-s) 0 0;
   cursor: pointer;
   color: var(--text-muted);
@@ -359,15 +367,18 @@ body,
   color: var(--text-strong);
   font-weight: 600;
 }
+/* 选中态: 手绘荧光笔划线(黄油色不规则笔触), 垫在文字底下 */
 .tab.active::after {
   content: "";
   position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: -2px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--accent);
+  z-index: -1;
+  left: 7px;
+  right: 7px;
+  bottom: 2px;
+  height: 7px;
+  background: rgba(235, 200, 125, 0.62);
+  border-radius: 6px 9px 5px 10px / 9px 5px 10px 6px;
+  transform: rotate(-1.3deg);
 }
 .count {
   font-size: 11px;
@@ -375,7 +386,7 @@ body,
   margin-left: 4px;
   font-weight: 500;
 }
-.tab.active .count { color: var(--accent); }
+.tab.active .count { color: var(--accent-strong); }
 
 .search-wrap {
   position: relative;
@@ -385,29 +396,35 @@ body,
 }
 .search-icon {
   position: absolute;
-  left: 12px;
+  left: 10px;
   top: 50%;
   transform: translateY(-50%);
   width: 15px;
   height: 15px;
-  color: var(--text-faint);
+  color: var(--text-muted);
   pointer-events: none;
 }
+/* 搜索框 = 手账工具栏里的一张小纸条 */
 .search {
   width: 100%;
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-m);
-  /* 右侧留出日历按钮的落位空间 */
-  padding: 8px 38px 8px 36px;
+  border-radius: 11px 13px 11px 14px / 13px 11px 14px 11px;
+  /* 右侧留出日历按钮的落位空间; 左右收紧保证 400px 窗口下手写体占位符完整显示 */
+  padding: 8px 36px 8px 32px;
   font-size: 13px;
   background: var(--surface);
+  box-shadow: var(--shadow-s);
   outline: none;
   transition:
     border-color 0.15s var(--ease-out),
     box-shadow 0.15s var(--ease-out),
     background-color 0.15s var(--ease-out);
 }
-.search::placeholder { color: var(--text-faint); }
+.search::placeholder {
+  font-family: var(--font-hand);
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
 .search:hover { border-color: var(--border-strong); }
 .search:focus {
   border-color: var(--accent);
@@ -426,12 +443,14 @@ body,
 .empty {
   text-align: center;
   margin-top: 22vh;
+  font-family: var(--font-hand);
+  font-size: 15px;
   color: var(--text-faint);
-  font-size: 14px;
   line-height: 2;
 }
 .empty-hint {
-  font-size: 12.5px;
+  font-family: var(--font-hand);
+  font-size: 13px;
   color: var(--text-faint);
 }
 
@@ -457,50 +476,83 @@ body,
   align-items: flex-end;
   gap: 10px;
 }
+/* 印章式添加按钮: 暖纸底 + 手绘虚线圈 + 小星星贴片, 按下有轻微弹性 */
 .fab-main {
-  width: 50px;
-  height: 50px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   border: none;
-  background: var(--accent);
-  color: #fff;
+  background: var(--surface);
+  color: var(--accent);
   cursor: pointer;
   display: grid;
   place-items: center;
-  box-shadow: 0 8px 24px var(--accent-line);
+  box-shadow:
+    0 2px 6px rgba(94, 76, 52, 0.18),
+    0 8px 20px rgba(94, 76, 52, 0.12);
   transition:
-    transform 0.15s var(--ease-out),
+    transform 0.25s var(--ease-spring),
     box-shadow 0.2s var(--ease-out),
     background-color 0.15s var(--ease-out);
   transform-origin: bottom right;
+  position: relative;
+}
+.fab-main::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  border: 1.5px dashed rgba(188, 107, 67, 0.55);
+}
+/* 小星星贴片: 歪贴在印章右上角 */
+.fab-main::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  right: -1px;
+  width: 14px;
+  height: 14px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2c.9 5.2 2.6 8.4 10 10-7.4 1.6-9.1 4.8-10 10-.9-5.2-2.6-8.4-10-10 7.4-1.6 9.1-4.8 10-10z' fill='%23f0dfae' stroke='%23bc6b43' stroke-width='1.3' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat center / contain;
+  transform: rotate(14deg);
+  filter: drop-shadow(0 1px 1px rgba(94, 76, 52, 0.22));
+  transition: transform 0.25s var(--ease-spring);
+  pointer-events: none;
 }
 .fab-main:hover {
-  transform: scale(1.06) ;
-  background: var(--accent-strong);
-  box-shadow: 0 10px 28px var(--accent-line);
+  transform: scale(1.07) rotate(-3deg);
+  background: #fffdf4;
+  box-shadow:
+    0 3px 8px rgba(94, 76, 52, 0.2),
+    0 10px 24px rgba(94, 76, 52, 0.14);
 }
-.fab-main:active { transform: scale(0.94); }
+.fab-main:active { transform: scale(0.92); }
 .fab-main svg {
   transition: transform 0.2s var(--ease-in-out);
 }
 .fab-area.open .fab-main svg {
   transform: rotate(45deg);
 }
+.fab-area.open .fab-main::after {
+  transform: rotate(80deg) scale(1.12);
+}
+/* 展开选项: 两张歪贴的小纸签 */
 .fab-opt {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px 12px 10px 13px / 12px 10px 13px 10px;
   padding: 8px 15px;
-  font-size: 12.5px;
+  font-family: var(--font-hand);
+  font-size: 13.5px;
   font-weight: 600;
   cursor: pointer;
   background: var(--surface);
   opacity: 0;
   transform: translateY(12px) scale(0.9);
+  rotate: -1.5deg;
   pointer-events: none;
-  box-shadow: var(--shadow-m);
+  box-shadow: var(--shadow-s);
   transition:
     opacity 0.16s var(--ease-out),
     transform 0.22s var(--ease-out),
@@ -517,15 +569,17 @@ body,
 }
 .fab-opt:active { transform: scale(0.94); }
 .fab-opt.todo {
-  color: var(--todo);
+  color: #5f7d55;
   background: var(--todo-soft);
-  border-color: var(--todo-soft);
+  border-color: rgba(125, 155, 113, 0.35);
+  rotate: -1.5deg;
 }
-.fab-opt.todo:hover { background: rgba(16, 185, 129, 0.2); }
+.fab-opt.todo:hover { background: rgba(125, 155, 113, 0.26); }
 .fab-opt.note {
-  color: var(--note);
+  color: #7c6a8c;
   background: var(--note-soft);
-  border-color: var(--note-soft);
+  border-color: rgba(156, 134, 172, 0.35);
+  rotate: 1.5deg;
 }
-.fab-opt.note:hover { background: rgba(139, 92, 246, 0.2); }
+.fab-opt.note:hover { background: rgba(156, 134, 172, 0.26); }
 </style>

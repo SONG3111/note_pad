@@ -42,7 +42,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(31, 39, 51, 0.36);
+  background: rgba(64, 49, 35, 0.35);
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
   display: grid;
@@ -55,9 +55,10 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 }
 .dialog {
   width: min(320px, 86vw);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-l);
+  background-color: var(--surface);
+  background-image: var(--grain);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px 19px 15px 19px / 19px 15px 19px 16px;
   padding: 24px 22px 20px;
   box-shadow: var(--shadow-l);
   text-align: center;
@@ -78,8 +79,10 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 }
 h3 {
   margin: 0 0 6px;
-  font-size: 15.5px;
-  font-weight: 600;
+  font-family: var(--font-hand);
+  font-size: 16.5px;
+  font-weight: 400;
+  letter-spacing: 0.5px;
   color: var(--text-strong);
 }
 p {

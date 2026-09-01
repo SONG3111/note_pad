@@ -10,39 +10,39 @@ import confetti from "canvas-confetti";
 import "./celebrate.css";
 import { playAllDoneSound } from "./sound";
 
-// 彩带色板:9 个色相(粉/珊瑚/橙/黄/绿/青/蓝/靛/紫),饱和度适中保证白底可见,
-// 色相够多避免随机取色时视觉上"只剩一种颜色"
+// 纸屑色板: 手账便签纸色系(陶土/黄油/鼠尾草/雾蓝/薰衣草/玫瑰),
+// 低饱和保证落在米纸背景上仍然可见, 色相够多避免随机取色时"只剩一种颜色"
 const CONFETTI_COLORS = [
-  "#f472b6", "#fb7185", "#fb923c", "#fbbf24",
-  "#4ade80", "#2dd4bf", "#60a5fa", "#818cf8", "#a78bfa",
+  "#bc6b43", "#e9cd8f", "#8fae83", "#c1d3de",
+  "#d5c6dd", "#e5c2b8", "#f0dfae", "#a55835",
 ];
 
-// 长条彩带形状,和方片/圆片混搭,视觉更像真实彩带
+// 长条彩带形状,和方片混搭——都是"纸"的形状,视觉像被撕碎的彩色纸屑
 const STRIP_SHAPE = confetti.shapeFromPath({ path: "M0 0 L16 0 L16 5 L0 5 Z" });
 
-// 撒落节奏:每 80ms 撒 3 粒(每粒独立取点),持续 ~1.7s,共 ~64 粒,连续细水长流不扎堆
+// 撒落节奏:每 80ms 撒 3 粒(每粒独立取点),持续 ~1.7s,连续细水长流不扎堆
 const BURST_WINDOW_MS = 1700;
 const BURST_INTERVAL_MS = 80;
 const PER_ROUND = 3;
-// 单粒存活 ~2.3s(ticks≈帧数)。注意:该库透明度随寿命线性衰减(alpha=1-tick/ticks),
-// 所以让粒子在 ~1.5s(寿命前 60%)就落出窗口底部,落底时仍有约 40% 不透明度;
+// 单粒存活 ~3.5s(ticks≈帧数)。注意:该库透明度随寿命线性衰减(alpha=1-tick/ticks),
+// 速度与重力都调小让纸屑"缓缓飘落",落出窗口底部时仍有一定不透明度;
 // 之后它已在屏外,不会出现"半空淡出"
-const PARTICLE_TICKS = 140;
+const PARTICLE_TICKS = 210;
 const BADGE_LIFETIME_MS = 2600;
 const COOLDOWN_MS = 1500;
 let lastPlayedAt = 0;
 
 const CONFETTI_DEFAULTS: confetti.Options = {
   colors: CONFETTI_COLORS,
-  shapes: [STRIP_SHAPE, "square", "circle"],
+  shapes: [STRIP_SHAPE, "square"],
   ticks: PARTICLE_TICKS,
   // angle:270 在该库坐标系(angle2D=-radAngle)里才是竖直向下;90 会向上喷
   angle: 270,
-  spread: 35,
-  startVelocity: 9,
-  // 实际重力 = 配置 × 3 = 7.5px/帧²,720px 窗口约 1.5s 贯穿落底
-  gravity: 2.5,
-  decay: 0.9,
+  spread: 45,
+  startVelocity: 6.5,
+  // 实际重力 = 配置 × 3 = 4.2px/帧²,纸屑飘落更慢更轻
+  gravity: 1.4,
+  decay: 0.92,
   scalar: 1.4,
   zIndex: 9999,
   disableForReducedMotion: true,
@@ -71,7 +71,9 @@ function sprinkle() {
 function showBadge() {
   const badge = document.createElement("div");
   badge.className = "celebrate-badge";
-  badge.textContent = "全部完成! 🎉";
+  // 不用 emoji: 一颗手绘风小星星 + 文案, 星星随徽章一起弹簧入场
+  badge.innerHTML =
+    '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c.9 5.2 2.6 8.4 10 10-7.4 1.6-9.1 4.8-10 10-.9-5.2-2.6-8.4-10-10 7.4-1.6 9.1-4.8 10-10z" fill="#f0dfae" stroke="#bc6b43" stroke-width="1.4" stroke-linejoin="round"/></svg><span>全部完成！</span>';
   badge.setAttribute("aria-hidden", "true");
   document.body.appendChild(badge);
   window.setTimeout(() => badge.remove(), BADGE_LIFETIME_MS);

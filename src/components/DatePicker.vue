@@ -197,9 +197,10 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocPointerDo
   z-index: 60;
   width: 259px;
   padding: 10px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-m);
+  background-color: var(--surface);
+  background-image: var(--grain);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px 14px 11px 15px / 14px 11px 15px 12px;
   box-shadow: var(--shadow-l);
   /* skills/emil-design-eng:弹层从触发器方向缩放,不从中心 */
   transform-origin: top right;
@@ -229,8 +230,10 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocPointerDo
   margin-bottom: 6px;
 }
 .dp-month {
-  font-size: 13px;
-  font-weight: 600;
+  font-family: var(--font-hand);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0.5px;
   color: var(--text-strong);
 }
 .dp-nav {

@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useNotesStore } from "./stores/notes";
 import { NOTE_COLORS, type NoteWithItems, type TodoItem } from "./types";
+import { mapCardColor } from "./colors";
 import { celebrateAllDone } from "./celebrate";
 import TodoCheckbox from "./components/TodoCheckbox.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
@@ -48,17 +49,26 @@ onMounted(async () => {
 });
 
 function applyLoaded(loaded: NoteWithItems) {
+  applyingRemote = true;
   note.value = loaded;
   title.value = loaded.title ?? "";
   content.value = loaded.content ?? "";
-  color.value = loaded.color;
+  color.value = mapCardColor(loaded.color);
   items.value = loaded.items;
+  // watch 是异步冲刷的, nextTick 后再解除屏蔽, 保证本轮赋值不触发自动保存
+  nextTick(() => {
+    applyingRemote = false;
+  });
 }
 
 let saveTimer: number | undefined;
 let dirty = false;
+// 程序化加载(打开窗口/跨窗口同步)期间的赋值不算用户编辑:
+// 色值映射可能改写 color 而触发保存 watch, 用该标记屏蔽, 避免打开窗口就写库
+let applyingRemote = false;
 
 watch([title, content, color], () => {
+  if (applyingRemote) return;
   dirty = true;
   window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(flushSave, 600);
@@ -188,7 +198,7 @@ const progress = computed(() =>
 </script>
 
 <template>
-  <div class="nwin" :style="{ '--card-color': color ?? '#f6f7f9' }">
+  <div class="nwin" :style="{ '--card-color': mapCardColor(color) }">
     <header class="bar" data-tauri-drag-region>
       <span class="dot" data-tauri-drag-region></span>
       <div class="tools">
@@ -283,17 +293,19 @@ body {
 </style>
 
 <style scoped>
+/* 独立便签 = 从手账上揭下来的一张彩色纸条 */
 .nwin {
   display: flex;
   flex-direction: column;
   height: calc(100vh - 10px);
   margin: 5px;
-  background: var(--card-color);
-  border-radius: 16px;
+  background-color: var(--card-color);
+  background-image: var(--grain);
+  border-radius: 16px 18px 15px 19px / 18px 15px 19px 16px;
   overflow: hidden;
   box-shadow:
-    inset 0 0 0 1px rgba(0, 0, 0, 0.05),
-    0 10px 30px -10px rgba(31, 39, 51, 0.4);
+    inset 0 0 0 1px rgba(94, 76, 52, 0.08),
+    0 10px 30px -10px rgba(94, 76, 52, 0.45);
 }
 .bar {
   flex: none;
@@ -301,8 +313,8 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 6px 10px 6px 16px;
-  background: rgba(255, 255, 255, 0.72);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  background: rgba(255, 253, 246, 0.72);
+  border-bottom: 1px solid rgba(94, 76, 52, 0.08);
   user-select: none;
 }
 .dot {
@@ -336,7 +348,7 @@ body {
 .tool-btn:hover { background: var(--bg-soft); color: var(--text-strong); }
 .tool-btn.active { background: var(--todo-soft); color: var(--todo); }
 .tool-btn.danger:hover { background: var(--danger-soft); color: var(--danger); }
-.tool-btn.close:hover { background: #374151; color: #fff; }
+.tool-btn.close:hover { background: #5b5041; color: #fff; }
 
 .missing {
   margin: auto;
@@ -357,8 +369,9 @@ body {
   border: none;
   outline: none;
   background: transparent;
-  font-size: 16px;
-  font-weight: 600;
+  font-family: var(--font-hand);
+  font-size: 17px;
+  font-weight: 400;
   color: var(--text-strong);
   padding: 4px 0 8px;
 }
@@ -456,16 +469,27 @@ body {
 .new-item {
   width: 100%;
   flex: none;
-  border: none;
+  border: 1.5px dashed rgba(94, 76, 52, 0.22);
   outline: none;
-  background: rgba(255, 255, 255, 0.6);
-  border-radius: var(--radius-s);
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 9px 11px 9px 12px / 11px 9px 12px 9px;
   font-size: 13px;
   color: var(--text);
   padding: 8px 10px;
   margin-top: 6px;
+  transition: border-color 0.15s var(--ease-out);
 }
-.new-item::placeholder { color: var(--text-faint); }
+.new-item:focus { border-color: var(--accent); }
+.new-item::placeholder {
+  font-family: var(--font-hand);
+  font-size: 13.5px;
+  color: var(--text-faint);
+}
+.content-input::placeholder {
+  font-family: var(--font-hand);
+  font-size: 14px;
+  color: var(--text-faint);
+}
 
 .colors {
   display: flex;
@@ -473,20 +497,28 @@ body {
   flex: none;
   padding-top: 12px;
 }
+/* 色卡贴纸: 歪贴的小纸片, 选中时铅笔圈勾出 */
 .color-dot {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 2px solid #fff;
-  box-shadow: 0 0 0 1px var(--border-strong);
+  width: 18px;
+  height: 22px;
+  border: none;
+  border-radius: 4px 6px 4px 6px / 6px 4px 6px 4px;
+  box-shadow:
+    inset 0 0 0 1px rgba(94, 76, 52, 0.15),
+    0 1px 2px rgba(94, 76, 52, 0.16);
   cursor: pointer;
+  rotate: -2.5deg;
   transition:
     transform 0.15s var(--ease-out),
-    box-shadow 0.15s var(--ease-out);
+    box-shadow 0.15s var(--ease-out),
+    rotate 0.15s var(--ease-out);
 }
-.color-dot:hover { transform: scale(1.15); }
+.color-dot:nth-child(even) { rotate: 2.5deg; }
+.color-dot:hover { transform: translateY(-2px) scale(1.06); }
 .color-dot.selected {
-  box-shadow: 0 0 0 2px var(--accent);
-  border-color: var(--accent);
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 3px var(--ink);
+  rotate: 0deg;
 }
 </style>

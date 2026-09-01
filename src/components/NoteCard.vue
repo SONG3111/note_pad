@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { relativeTime, type NoteWithItems } from "../types";
+import { mapCardColor } from "../colors";
 import TodoCheckbox from "./TodoCheckbox.vue";
 import { useNotesStore } from "../stores/notes";
 
@@ -72,10 +73,12 @@ watch(allDone, (v, was) => {
 </script>
 
 <template>
-  <article class="card" :style="{ '--card-color': note.color ?? '#f6f7f9' }" @mousedown="onDown">
+  <article class="card" :style="{ '--card-color': mapCardColor(note.color) }" @mousedown="onDown">
     <span v-if="detached" class="win-badge" title="该记录已在独立窗口中打开,点击可聚焦该窗口">独立窗口中</span>
     <div class="card-top">
-      <span v-if="note.pinned" class="pin-badge">📌</span>
+      <span v-if="note.pinned" class="pin-badge" title="已置顶">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 7 3 3H5l3-3 1-7z"/></svg>
+      </span>
       <div class="card-actions">
         <button class="icon-btn" title="编辑" @click="emit('edit')">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
@@ -88,8 +91,12 @@ watch(allDone, (v, was) => {
           :class="{ active: note.pinned }"
           :title="note.pinned ? '取消置顶' : '置顶'"
           @click="emit('togglePin')"
-        >📌</button>
-        <button class="icon-btn danger" title="删除" @click="emit('remove')">✕</button>
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 7 3 3H5l3-3 1-7z"/></svg>
+        </button>
+        <button class="icon-btn danger" title="删除" @click="emit('remove')">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
       </div>
     </div>
 
@@ -122,22 +129,49 @@ watch(allDone, (v, was) => {
 </template>
 
 <style scoped>
+/* 卡片 = 手账里的一张彩色便签纸:
+   暖墨细边 + 微不均匀圆角 + 极淡纸纹 + 柔和暖影, 右上角一段和纸胶带 */
 .card {
-  background: var(--card-color);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-l);
-  padding: 38px 18px 16px;
-  box-shadow: var(--shadow-s);
+  background-color: var(--card-color);
+  background-image: var(--grain);
+  border: 1px solid rgba(122, 99, 68, 0.26);
+  border-radius: 12px 15px 12px 16px / 15px 12px 16px 12px;
+  padding: 36px 18px 14px;
+  box-shadow:
+    0 1px 2px rgba(94, 76, 52, 0.06),
+    0 5px 14px rgba(94, 76, 52, 0.07);
   transition:
     box-shadow 0.2s var(--ease-out),
     transform 0.2s var(--ease-out),
     border-color 0.2s var(--ease-out);
   position: relative;
 }
+/* 和纸胶带: 半透明斜纹, hover 时像被轻轻掀起 */
+.card::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  right: 24px;
+  width: 54px;
+  height: 15px;
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.38) 0 3px, transparent 3px 7px),
+    rgba(233, 200, 122, 0.62);
+  clip-path: polygon(3% 12%, 100% 0, 97% 88%, 0 100%);
+  transform: rotate(-4deg);
+  box-shadow: 0 1px 2px rgba(94, 76, 52, 0.12);
+  pointer-events: none;
+  transition: transform 0.2s var(--ease-out);
+}
 .card:hover {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-m);
+  border-color: rgba(122, 99, 68, 0.4);
+  box-shadow:
+    0 2px 4px rgba(94, 76, 52, 0.08),
+    0 10px 22px rgba(94, 76, 52, 0.12);
   transform: translateY(-2px);
+}
+.card:hover::before {
+  transform: rotate(-1.5deg) translateY(-1px);
 }
 
 .card-top {
@@ -149,6 +183,10 @@ watch(allDone, (v, was) => {
 }
 .pin-badge {
   font-size: 12px;
+  color: var(--text-muted);
+  display: grid;
+  place-items: center;
+  padding-top: 3px;
 }
 .win-badge {
   position: absolute;
@@ -176,7 +214,7 @@ watch(allDone, (v, was) => {
 .icon-btn {
   border: none;
   background: color-mix(in srgb, var(--card-color) 60%, var(--surface) 40%);
-  border-radius: var(--radius-s);
+  border-radius: 8px 10px 8px 11px / 10px 8px 11px 8px;
   width: 27px;
   height: 27px;
   font-size: 12px;
@@ -211,8 +249,10 @@ watch(allDone, (v, was) => {
 
 .title {
   margin: 0 0 6px;
-  font-size: 15px;
-  font-weight: 600;
+  font-family: var(--font-hand);
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: 0.4px;
   color: var(--text-strong);
   white-space: nowrap;
   overflow: hidden;
@@ -293,7 +333,8 @@ watch(allDone, (v, was) => {
   color: var(--text-faint);
 }
 .more-hint {
-  font-size: 12px;
+  font-family: var(--font-hand);
+  font-size: 12.5px;
   color: var(--text-faint);
   margin: 4px 0 0;
 }
@@ -306,7 +347,8 @@ watch(allDone, (v, was) => {
   background: transparent;
   padding: 2px 0;
   margin-top: 6px;
-  font-size: 12px;
+  font-family: var(--font-hand);
+  font-size: 12.5px;
   color: var(--text-muted);
   cursor: pointer;
   transition: color 0.15s var(--ease-out);
@@ -319,6 +361,7 @@ watch(allDone, (v, was) => {
 }
 .chev.up { transform: rotate(180deg); }
 
+/* 进度线: 手账里的细进度线, 暖陶土填充 */
 .progress-wrap {
   display: flex;
   align-items: center;
@@ -327,8 +370,8 @@ watch(allDone, (v, was) => {
 }
 .progress-bar {
   flex: 1;
-  height: 4px;
-  background: color-mix(in srgb, var(--card-color) 30%, var(--border-strong));
+  height: 3px;
+  background: color-mix(in srgb, var(--card-color) 38%, #b9a685);
   border-radius: 999px;
   overflow: hidden;
 }
@@ -339,7 +382,8 @@ watch(allDone, (v, was) => {
   transition: width 0.25s var(--ease-out);
 }
 .progress-text {
-  font-size: 11.5px;
+  font-family: var(--font-hand);
+  font-size: 12px;
   color: var(--text-muted);
   min-width: 30px;
   text-align: right;
@@ -347,6 +391,7 @@ watch(allDone, (v, was) => {
 
 .card-footer {
   margin-top: 10px;
+  font-family: var(--font-hand);
   font-size: 11.5px;
   color: var(--text-faint);
 }

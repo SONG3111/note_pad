@@ -24,13 +24,15 @@ export interface NoteWithItems extends Note {
   items: TodoItem[];
 }
 
+/// 手账色卡: 降饱和的便签纸色, 存入数据库的仍是 hex 字符串(结构不变)。
+/// 存量旧色值的兼容映射见 colors.ts 的 mapCardColor
 export const NOTE_COLORS = [
-  "#f6f7f9",
-  "#ffe58f",
-  "#b7f0cd",
-  "#bcd9ff",
-  "#ffb3b3",
-  "#e3c8ff",
+  "#f8f3e7", // 米纸
+  "#f0dfae", // butter yellow
+  "#c7d8ba", // sage green
+  "#c1d3de", // dusty blue
+  "#e5c2b8", // dusty rose
+  "#d5c6dd", // lavender
 ] as const;
 
 export function relativeTime(ts: number): string {

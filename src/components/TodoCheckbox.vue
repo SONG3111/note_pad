@@ -32,7 +32,7 @@ function onChange(e: Event) {
     <input class="cb-input" type="checkbox" :checked="checked" @change="onChange" />
     <span ref="boxRef" class="cb-box" aria-hidden="true">
       <svg class="cb-check" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M4.5 12.5l5 5L19.5 7" />
+        <path pathLength="1" d="M4.6 12.9 C6.4 14.2 8 15.9 9.2 17.9 C11.6 13.2 15.3 8.4 19.6 5.3" />
       </svg>
     </span>
   </label>
@@ -52,11 +52,12 @@ function onChange(e: Event) {
   opacity: 0;
   cursor: pointer;
 }
+/* 手绘复选框: 铅笔棕描边 + 微不均匀圆角, 像在本子上画的小方框 */
 .cb-box {
   width: 18px;
   height: 18px;
-  border-radius: 6px;
-  border: 2px solid var(--border-strong);
+  border-radius: 7px 5px 8px 5px / 5px 8px 5px 8px;
+  border: 2px solid var(--ink);
   background: var(--surface);
   display: grid;
   place-items: center;
@@ -67,7 +68,7 @@ function onChange(e: Event) {
     transform 0.1s var(--ease-out);
 }
 .cb-wrap:hover .cb-box {
-  border-color: var(--text-faint);
+  border-color: var(--text-strong);
 }
 .cb-input:active + .cb-box {
   transform: scale(0.9);
@@ -75,24 +76,26 @@ function onChange(e: Event) {
 .cb-input:focus-visible + .cb-box {
   box-shadow: 0 0 0 3px var(--todo-soft);
 }
+/* 手绘√: 选中时像用笔快速画出来(描边路径动画), 不做整块填色 */
 .cb-check {
-  width: 11px;
-  height: 11px;
-  stroke: #fff;
-  stroke-width: 3.2;
+  width: 12px;
+  height: 12px;
+  stroke: var(--todo);
+  stroke-width: 2.6;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
   opacity: 0;
-  transform: scale(0.25);
   transition:
-    opacity 0.15s var(--ease-in-out),
-    transform 0.18s var(--ease-in-out);
+    stroke-dashoffset 0.24s var(--ease-out),
+    opacity 0.1s linear;
 }
 .cb-input:checked + .cb-box {
-  background-color: var(--todo);
+  background-color: var(--todo-soft);
   border-color: var(--todo);
 }
 .cb-input:checked + .cb-box .cb-check {
   opacity: 1;
-  transform: scale(1);
+  stroke-dashoffset: 0;
 }
 
 /* 粒子迸发:勾选瞬间十颗彩色粒子从盒子四周迸出并淡出。
@@ -129,15 +132,16 @@ function onChange(e: Event) {
     transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.35);
   }
 }
-/* 十个方向 + 两种粒径,绿系为主、暖色点缀,微错峰更像真实迸溅 */
-.burst-layer i:nth-child(1) { --dx: 26px; --dy: -22px; background: #34d399; }
-.burst-layer i:nth-child(2) { --dx: -24px; --dy: -20px; background: #10b981; animation-delay: 0.03s; }
-.burst-layer i:nth-child(3) { --dx: 30px; --dy: 6px; background: #fbbf24; width: 5px; height: 5px; animation-delay: 0.05s; }
-.burst-layer i:nth-child(4) { --dx: -28px; --dy: 8px; background: #059669; animation-delay: 0.02s; }
-.burst-layer i:nth-child(5) { --dx: 18px; --dy: 24px; background: #2dd4bf; width: 5px; height: 5px; animation-delay: 0.06s; }
-.burst-layer i:nth-child(6) { --dx: -16px; --dy: 26px; background: #f59e0b; animation-delay: 0.04s; }
-.burst-layer i:nth-child(7) { --dx: 4px; --dy: -30px; background: #a7f3d0; width: 5px; height: 5px; animation-delay: 0.01s; }
-.burst-layer i:nth-child(8) { --dx: -4px; --dy: 30px; background: #fcd34d; width: 5px; height: 5px; animation-delay: 0.07s; }
-.burst-layer i:nth-child(9) { --dx: 30px; --dy: -10px; background: #6ee7b7; width: 5px; height: 5px; animation-delay: 0.02s; }
-.burst-layer i:nth-child(10) { --dx: -30px; --dy: -6px; background: #fb923c; width: 5px; height: 5px; animation-delay: 0.05s; }
+/* 十个方向 + 两种粒径, 手账纸屑色(鼠尾草/黄油/雾蓝/玫瑰/薰衣草/陶土),
+   微错峰更像一小把纸屑迸散 */
+.burst-layer i:nth-child(1) { --dx: 26px; --dy: -22px; background: #8fae83; }
+.burst-layer i:nth-child(2) { --dx: -24px; --dy: -20px; background: #7d9b71; animation-delay: 0.03s; }
+.burst-layer i:nth-child(3) { --dx: 30px; --dy: 6px; background: #e9cd8f; width: 5px; height: 5px; animation-delay: 0.05s; }
+.burst-layer i:nth-child(4) { --dx: -28px; --dy: 8px; background: #6f8a64; animation-delay: 0.02s; }
+.burst-layer i:nth-child(5) { --dx: 18px; --dy: 24px; background: #c1d3de; width: 5px; height: 5px; animation-delay: 0.06s; }
+.burst-layer i:nth-child(6) { --dx: -16px; --dy: 26px; background: #bc6b43; animation-delay: 0.04s; }
+.burst-layer i:nth-child(7) { --dx: 4px; --dy: -30px; background: #f0dfae; width: 5px; height: 5px; animation-delay: 0.01s; }
+.burst-layer i:nth-child(8) { --dx: -4px; --dy: 30px; background: #d5c6dd; width: 5px; height: 5px; animation-delay: 0.07s; }
+.burst-layer i:nth-child(9) { --dx: 30px; --dy: -10px; background: #a8bfa0; width: 5px; height: 5px; animation-delay: 0.02s; }
+.burst-layer i:nth-child(10) { --dx: -30px; --dy: -6px; background: #d9977f; width: 5px; height: 5px; animation-delay: 0.05s; }
 </style>
