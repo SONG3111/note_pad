@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
+import { useI18n } from "vue-i18n";
 import { NOTE_COLORS, type NoteWithItems } from "../types";
 import { mapCardColor } from "../colors";
 import TodoCheckbox from "./TodoCheckbox.vue";
+
+const { t } = useI18n();
 
 const props = defineProps<{ note: NoteWithItems }>();
 
@@ -109,15 +112,15 @@ function close() {
           ></button>
         </div>
         <div class="tools">
-          <button class="tool-btn" :class="{ active: note.pinned }" title="置顶" @click="emit('togglePin')">
+          <button class="tool-btn" :class="{ active: note.pinned }" :title="t('editor.pin')" @click="emit('togglePin')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 7 3 3H5l3-3 1-7z"/></svg>
           </button>
-          <button class="tool-btn danger" title="删除" @click="emit('remove')">
+          <button class="tool-btn danger" :title="t('editor.delete')" @click="emit('remove')">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
               <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M10 11v6M14 11v6"/>
             </svg>
           </button>
-          <button class="tool-btn close" title="关闭" @click="close">
+          <button class="tool-btn close" :title="t('editor.close')" @click="close">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
               <path d="M18 6L6 18M6 6l12 12"/>
             </svg>
@@ -125,12 +128,12 @@ function close() {
         </div>
       </div>
 
-      <input v-model="title" class="title-input" placeholder="标题" autofocus />
+      <input v-model="title" class="title-input" :placeholder="t('editor.titlePlaceholder')" autofocus />
       <textarea
         v-if="note.type === 'note'"
         v-model="content"
         class="content-input"
-        placeholder="记录你的想法…"
+        :placeholder="t('editor.contentPlaceholder')"
       ></textarea>
 
       <div v-else class="todo-editor">
@@ -138,12 +141,12 @@ function close() {
           <div v-for="item in note.items" :key="item.id" class="item-row">
             <TodoCheckbox :checked="item.checked" @change="emit('toggleItem', item.id, !item.checked)" />
             <input class="item-text" :class="{ done: item.checked }" :value="item.text" @blur="onItemBlur($event, item.id)" />
-            <button class="row-del" title="删除此项" @click="emit('removeItem', item.id)">
+            <button class="row-del" :title="t('editor.deleteItem')" @click="emit('removeItem', item.id)">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
             </button>
           </div>
         </div>
-        <input v-model="newItemText" class="new-item" placeholder="+ 添加待办,回车确认" @keydown.enter.prevent="addOnEnter" />
+        <input v-model="newItemText" class="new-item" :placeholder="t('editor.addItemPlaceholder')" @keydown.enter.prevent="addOnEnter" />
       </div>
     </div>
   </div>

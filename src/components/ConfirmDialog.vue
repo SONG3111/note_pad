@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted } from "vue";
+import { useI18n } from "vue-i18n";
 
 defineProps<{
   open: boolean;
@@ -10,6 +11,9 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{ confirm: []; cancel: [] }>();
+
+// 文案由父组件用 t() 传入;此处的 i18n 兜底保证漏传时也不会出现硬编码语言
+const { t } = useI18n();
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key === "Escape") emit("cancel");
@@ -27,11 +31,11 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
             <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M10 11v6M14 11v6"/>
           </svg>
         </div>
-        <h3>{{ title ?? "删除记录" }}</h3>
+        <h3>{{ title ?? t("dialog.deleteTitle") }}</h3>
         <p>{{ message }}</p>
         <div class="actions">
-          <button class="d-btn cancel" @click="emit('cancel')">{{ cancelText ?? "取消" }}</button>
-          <button class="d-btn danger" autofocus @click="emit('confirm')">{{ confirmText ?? "删除" }}</button>
+          <button class="d-btn cancel" @click="emit('cancel')">{{ cancelText ?? t("dialog.cancel") }}</button>
+          <button class="d-btn danger" autofocus @click="emit('confirm')">{{ confirmText ?? t("dialog.delete") }}</button>
         </div>
       </div>
     </div>

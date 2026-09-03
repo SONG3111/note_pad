@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from "pinia";
 import type { NoteWithItems } from "../types";
 import DatePicker from "../components/DatePicker.vue";
 import { useNotesStore } from "../stores/notes";
+import i18n from "../i18n";
 
 // store 依赖 celebrate→canvas-confetti:jsdom 无 canvas,模块加载即抛错,必须 mock 掉
 vi.mock("../celebrate", () => ({ celebrateAllDone: vi.fn() }));
@@ -27,7 +28,8 @@ beforeEach(() => {
 });
 
 function mountPicker() {
-  return mount(DatePicker);
+  // DatePicker 内部使用 useI18n,挂载时需安装全局 i18n 插件
+  return mount(DatePicker, { global: { plugins: [i18n] } });
 }
 
 describe("DatePicker", () => {
@@ -78,7 +80,8 @@ describe("DatePicker", () => {
     const store = useNotesStore();
     const wrapper = mountPicker();
     await wrapper.find(".dp-btn").trigger("click");
-    const clearBtn = wrapper.findAll(".dp-act").find((b) => b.text() === "清除筛选")!;
+    // 用 data-testid 定位,不依赖具体语言的按钮文案
+    const clearBtn = wrapper.find('[data-testid="dp-clear"]');
     expect(clearBtn.attributes("disabled")).toBeDefined();
     store.setDateFilter(todayKey());
     await vi.waitFor(() => {

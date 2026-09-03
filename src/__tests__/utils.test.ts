@@ -31,28 +31,37 @@ describe("dateKey", () => {
 });
 
 describe("formatDateLabel", () => {
-  it("解析 YYYY-MM-DD 并去前导零", () => {
-    expect(formatDateLabel("2026-08-30")).toBe("8月30日");
-    expect(formatDateLabel("2026-01-05")).toBe("1月5日");
+  it("解析 YYYY-MM-DD 并去前导零(中文)", () => {
+    expect(formatDateLabel("2026-08-30", "zh-CN")).toBe("8月30日");
+    expect(formatDateLabel("2026-01-05", "zh-CN")).toBe("1月5日");
+  });
+  it("英文格式 M/D", () => {
+    expect(formatDateLabel("2026-08-30", "en-US")).toBe("8/30");
+    expect(formatDateLabel("2026-01-05", "en-US")).toBe("1/5");
   });
 });
 
 describe("relativeTime", () => {
   it("刚刚(< 1 分钟)", () => {
-    expect(relativeTime(Date.now() - 30_000)).toBe("刚刚");
+    expect(relativeTime(Date.now() - 30_000, "zh-CN")).toBe("刚刚");
+    expect(relativeTime(Date.now() - 30_000, "en-US")).toBe("just now");
   });
   it("N 分钟前", () => {
-    expect(relativeTime(Date.now() - 5 * 60_000)).toBe("5 分钟前");
+    expect(relativeTime(Date.now() - 5 * 60_000, "zh-CN")).toBe("5 分钟前");
+    expect(relativeTime(Date.now() - 5 * 60_000, "en-US")).toBe("5m ago");
   });
   it("N 小时前", () => {
-    expect(relativeTime(Date.now() - 3 * 3600_000)).toBe("3 小时前");
+    expect(relativeTime(Date.now() - 3 * 3600_000, "zh-CN")).toBe("3 小时前");
+    expect(relativeTime(Date.now() - 3 * 3600_000, "en-US")).toBe("3h ago");
   });
   it("N 天前(7 天内)", () => {
-    expect(relativeTime(Date.now() - 2 * 86400_000)).toBe("2 天前");
+    expect(relativeTime(Date.now() - 2 * 86400_000, "zh-CN")).toBe("2 天前");
+    expect(relativeTime(Date.now() - 2 * 86400_000, "en-US")).toBe("2d ago");
   });
   it("超过 7 天回退到本地日期", () => {
     const ts = Date.now() - 30 * 86400_000;
-    expect(relativeTime(ts)).toBe(new Date(ts).toLocaleDateString("zh-CN"));
+    expect(relativeTime(ts, "zh-CN")).toBe(new Date(ts).toLocaleDateString("zh-CN"));
+    expect(relativeTime(ts, "en-US")).toBe(new Date(ts).toLocaleDateString("en-US"));
   });
 });
 

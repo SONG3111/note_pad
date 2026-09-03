@@ -1,0 +1,91 @@
+// 英文语言包。类型约束为 typeof zh-CN:键缺失或拼错会在 vue-tsc 构建时报错。
+import type zhCN from "./zh-CN";
+
+const enUS: typeof zhCN = {
+  app: {
+    name: "Inkling Notes",
+  },
+  settings: {
+    switchLanguage: "Switch language",
+  },
+  main: {
+    minimize: "Minimize",
+    maximizeRestore: "Maximize/Restore",
+    hideToTray: "Hide to tray",
+    tabAll: "All",
+    tabTodo: "To-do",
+    tabNote: "Notes",
+    searchPlaceholder: "Search notes and to-dos",
+    loading: "Loading…",
+    searchEmpty: 'No records matching "{query}"',
+    searchEmptyHint: "Try different keywords, or clear the search to see everything",
+    dateFilterEmpty: "No records on {date}",
+    dateFilterEmptyHint: 'Click the calendar icon in the toolbar and choose "Clear filter"',
+    emptyTodo: "No to-dos yet. Add tasks to plan your day",
+    emptyNote: "No notes yet. Capture your fleeting ideas",
+    emptyAll: "Nothing here yet. Create your first note!",
+    fabTodo: "+ To-do",
+    fabNote: "+ Note",
+    fabCollapse: "Collapse",
+    fabNew: "New",
+    fabNewAria: "Create new",
+  },
+  dialog: {
+    deleteTitle: "Delete record",
+    deleteMessage: "This cannot be undone. Delete this record?",
+    cancel: "Cancel",
+    delete: "Delete",
+  },
+  noteWindow: {
+    pinTitle: "Keep on top",
+    unpinTitle: "Stop keeping on top",
+    deleteNote: "Delete note",
+    closeBack: "Close and return to list",
+    missing: "This note doesn't exist or has been deleted",
+  },
+  editor: {
+    titlePlaceholder: "Title",
+    contentPlaceholder: "Write your thoughts…",
+    addItemPlaceholder: "+ Add a to-do, press Enter",
+    pin: "Pin to top",
+    delete: "Delete",
+    close: "Close",
+    deleteItem: "Delete this item",
+  },
+  noteCard: {
+    detachedBadge: "In own window",
+    detachedBadgeTitle: "This record is open in its own window. Click to focus it",
+    pinnedBadge: "Pinned",
+    edit: "Edit",
+    detach: "Detach to its own window",
+    pin: "Pin to top",
+    unpin: "Unpin",
+    delete: "Delete",
+    deleteItem: "Delete this item",
+    collapse: "Collapse",
+    expandAll: "Show all {n} items",
+    emptyTodoHint: "Empty to-do · Add in editor",
+  },
+  datePicker: {
+    filter: "Filter by date",
+    filterActive: "Filtering by {date}. Click to pick another date",
+    prevMonth: "Previous month",
+    nextMonth: "Next month",
+    today: "Today",
+    clearFilter: "Clear filter",
+    weekDays: ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
+  },
+  celebrate: {
+    allDone: "All done!",
+  },
+  errors: {
+    DB_BUSY: "Database is busy",
+    WINDOW_NOT_FOUND: "Window not found",
+    NOTE_NOT_FOUND: "Note not found",
+    ITEM_NOT_FOUND: "To-do item not found",
+    CONTENT_EMPTY: "Content cannot be empty",
+    NO_FIELDS_TO_UPDATE: "No fields to update",
+  },
+};
+
+export default enUS;

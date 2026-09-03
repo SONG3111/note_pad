@@ -75,6 +75,9 @@ foreach ($k in $icons.Keys) {
 }
 
 # ---- 2. write AppxManifest.xml ----
+# DisplayName/Description 用 ms-resource: 令牌,由 strings\<lang>\Resources.resw
+# (步骤 2b)+ resources.pri(步骤 2c)按系统语言解析:中文系统显示"灵感便签",
+# 英文系统显示 "Inkling Notes"。
 $VersionFull = $Version + ".0"
 $manifest = @"
 <?xml version="1.0" encoding="utf-8"?>
@@ -86,9 +89,10 @@ $manifest = @"
   IgnorableNamespaces="uap uap3 rescap">
   <Identity Name="$Identity"
             Publisher="$Publisher"
-            Version="$VersionFull" />
+            Version="$VersionFull"
+            ProcessorArchitecture="x64" />
   <Properties>
-    <DisplayName>灵感便签</DisplayName>
+    <DisplayName>ms-resource:AppDisplayName</DisplayName>
     <PublisherDisplayName>Qulv Studio</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
@@ -97,12 +101,13 @@ $manifest = @"
   </Dependencies>
   <Resources>
     <Resource Language="zh-CN" />
+    <Resource Language="en-US" />
   </Resources>
   <Applications>
     <Application Id="App" Executable="$AppExeName" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="灵感便签"
-        Description="轻量级便签与待办应用，支持边缘贴靠。"
+        DisplayName="ms-resource:AppDisplayName"
+        Description="ms-resource:AppDescription"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">
@@ -122,11 +127,60 @@ $manifest = @"
 $manifestPath = Join-Path $Stage "AppxManifest.xml"
 $manifest | Set-Content -Path $manifestPath -Encoding UTF8
 
+if (-not (Select-String -Path $manifestPath -Pattern "ms-resource:AppDisplayName" -Quiet)) {
+  throw "Manifest missing ms-resource tokens - manifest template is broken"
+}
+
+# ---- 2b. write localized string resources (Start tile name / app description) ----
+$reswTemplate = @"
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <data name="AppDisplayName" xml:space="preserve">
+    <value>{0}</value>
+  </data>
+  <data name="AppDescription" xml:space="preserve">
+    <value>{1}</value>
+  </data>
+</root>
+"@
+$reswZh = $reswTemplate -f "灵感便签", "轻量级便签与待办应用，支持边缘贴靠。"
+$reswEn = $reswTemplate -f "Inkling Notes", "A lightweight sticky notes and to-do app with edge snapping."
+
+New-Item -ItemType Directory -Force -Path (Join-Path $Stage "strings\zh-CN") | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $Stage "strings\en-US") | Out-Null
+$reswZh | Set-Content -Path (Join-Path $Stage "strings\zh-CN\Resources.resw") -Encoding UTF8
+$reswEn | Set-Content -Path (Join-Path $Stage "strings\en-US\Resources.resw") -Encoding UTF8
+
 # Guard against silent mojibake: if this script was saved without a
 # UTF-8 BOM, PowerShell 5.1 corrupts the Chinese strings above.
-if (-not (Select-String -Path $manifestPath -Pattern "灵感便签" -Quiet)) {
-  throw "Manifest missing Chinese DisplayName - the script file must be saved as UTF-8 with BOM"
+if (-not (Select-String -Path (Join-Path $Stage "strings\zh-CN\Resources.resw") -Pattern "灵感便签" -Quiet)) {
+  throw "resw missing Chinese DisplayName - the script file must be saved as UTF-8 with BOM"
 }
+
+# ---- 2c. build resources.pri (resolves the ms-resource: tokens) ----
+# 注意:不能用 makepri createconfig 生成的默认配置——它带
+# <autoResourcePackage qualifier="Language"/>,会把中文资源拆分进
+# resources.language-zh-hans.pri,单包 MSIX 安装后解析不到中文名。
+# 这里写一个不含 packaging 拆分的精简配置,所有语言合入同一个 resources.pri。
+$MakePri = Join-Path $Kit "makepri.exe"
+$PriConfig = Join-Path $Root "priconfig.xml"
+$priConfigXml = @"
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<resources targetOsVersion="10.0.0" majorVersion="1">
+	<index root="\" startIndexAt="\">
+		<default>
+			<qualifier name="Language" value="en-US"/>
+		</default>
+		<indexer-config type="folder" foldernameAsQualifier="true" filenameAsQualifier="true" qualifierDelimiter="."/>
+		<indexer-config type="resw" convertDotsToSlashes="true" initialPath=""/>
+		<indexer-config type="PRI"/>
+	</index>
+</resources>
+"@
+$priConfigXml | Set-Content -Path $PriConfig -Encoding UTF8
+
+& $MakePri new /o /pr $Stage /cf $PriConfig /of (Join-Path $Stage "resources.pri") /in $Identity
+if ($LASTEXITCODE -ne 0) { throw "makepri new failed" }
 
 # ---- 3. pack ----
 Write-Host "==> packing..."

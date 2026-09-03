@@ -9,6 +9,7 @@
 import confetti from "canvas-confetti";
 import "./celebrate.css";
 import { playAllDoneSound } from "./sound";
+import i18n from "./i18n";
 
 // 纸屑色板: 手账便签纸色系(陶土/黄油/鼠尾草/雾蓝/薰衣草/玫瑰),
 // 低饱和保证落在米纸背景上仍然可见, 色相够多避免随机取色时"只剩一种颜色"
@@ -73,7 +74,9 @@ function showBadge() {
   badge.className = "celebrate-badge";
   // 不用 emoji: 一颗手绘风小星星 + 文案, 星星随徽章一起弹簧入场
   badge.innerHTML =
-    '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c.9 5.2 2.6 8.4 10 10-7.4 1.6-9.1 4.8-10 10-.9-5.2-2.6-8.4-10-10 7.4-1.6 9.1-4.8 10-10z" fill="#f0dfae" stroke="#bc6b43" stroke-width="1.4" stroke-linejoin="round"/></svg><span>全部完成！</span>';
+    '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c.9 5.2 2.6 8.4 10 10-7.4 1.6-9.1 4.8-10 10-.9-5.2-2.6-8.4-10-10 7.4-1.6 9.1-4.8 10-10z" fill="#f0dfae" stroke="#bc6b43" stroke-width="1.4" stroke-linejoin="round"/></svg><span>' +
+    i18n.global.t("celebrate.allDone") +
+    "</span>";
   badge.setAttribute("aria-hidden", "true");
   document.body.appendChild(badge);
   window.setTimeout(() => badge.remove(), BADGE_LIFETIME_MS);

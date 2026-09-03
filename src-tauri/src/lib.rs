@@ -1,5 +1,7 @@
 mod db;
 #[cfg(desktop)]
+mod i18n;
+#[cfg(desktop)]
 mod dock;
 
 use std::sync::{Arc, Mutex};
@@ -18,7 +20,8 @@ where
     F: FnOnce(&rusqlite::Connection) -> CmdResult<T> + Send + 'static,
 {
     tauri::async_runtime::spawn_blocking(move || {
-        let conn = db.lock().map_err(|_| "数据库忙".to_string())?;
+        // 错误以稳定码返回,用户可见文案由前端按语言翻译(见 src/i18n/locales)
+        let conn = db.lock().map_err(|_| "DB_BUSY".to_string())?;
         f(&conn)
     })
     .await
@@ -75,7 +78,7 @@ async fn detach_note_window(
             .unwrap_or(1.0);
 
         let win = tauri::WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
-            .title("灵感便签")
+            .title(i18n::current(&app).app_title())
             .inner_size(w, h)
             .position(x / scale, y / scale)
             .decorations(false)
@@ -94,12 +97,27 @@ async fn detach_note_window(
     Ok(())
 }
 
+/// 切换应用语言(前端手动切换时调用):更新全局状态并重建托盘。
+/// 窗口标题由前端自行 setTitle,这里只管 Rust 侧创建的托盘文案。
+#[tauri::command]
+async fn set_app_locale(app: AppHandle, locale: String) -> CmdResult<()> {
+    let loc = i18n::AppLocale::from_tag(&locale);
+    {
+        let state = app.state::<i18n::AppState>();
+        let mut cur = state.0.lock().map_err(|_| "DB_BUSY".to_string())?;
+        *cur = loc;
+    }
+    #[cfg(desktop)]
+    i18n::rebuild_tray(&app, loc).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// 切换任意窗口的置顶状态
 #[tauri::command]
 async fn set_window_on_top(app: AppHandle, label: String, top: bool) -> CmdResult<()> {
     let win = app
         .get_webview_window(&label)
-        .ok_or_else(|| "窗口不存在".to_string())?;
+        .ok_or_else(|| "WINDOW_NOT_FOUND".to_string())?;
     win.set_always_on_top(top).map_err(|e| e.to_string())
 }
 
@@ -231,13 +249,17 @@ pub fn run() {
                     }
                 }
 
-                let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
-                let quit = MenuItem::with_id(app, "quit", "退出灵感便签", true, None::<&str>)?;
+                // 应用语言:按系统语言初始化,前端切换语言时经 set_app_locale 同步并重建托盘
+                let locale = i18n::AppLocale::from_system();
+                app.manage(i18n::AppState(std::sync::Mutex::new(locale)));
+
+                let show = MenuItem::with_id(app, "show", locale.tray_show(), true, None::<&str>)?;
+                let quit = MenuItem::with_id(app, "quit", locale.tray_quit(), true, None::<&str>)?;
                 let menu = Menu::with_items(app, &[&show, &quit])?;
                 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
                 tauri::tray::TrayIconBuilder::with_id("main-tray")
                     .icon(app.default_window_icon().expect("missing icon").clone())
-                    .tooltip("灵感便签")
+                    .tooltip(locale.app_title())
                     .menu(&menu)
                     .show_menu_on_left_click(false)
                     .on_menu_event(|app, event| match event.id.as_ref() {
@@ -291,7 +313,8 @@ pub fn run() {
             update_todo_item,
             delete_todo_item,
             detach_note_window,
-            set_window_on_top
+            set_window_on_top,
+            set_app_locale
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -4,13 +4,8 @@ import assert from "node:assert/strict";
 
 const TITLE = "E2E 冒烟测试待办";
 
-async function buttonByText(text) {
-  const btns = await $$(".dp-act");
-  for (const b of btns) {
-    if ((await b.getText()).includes(text)) return b;
-  }
-  throw new Error(`未找到按钮:${text}`);
-}
+// 应用支持中英双语,断言一律用 data-testid/类名定位,不依赖界面语言
+const BRAND_NAMES = ["灵感便签", "Inkling Notes"];
 
 describe("灵感便签 冒烟", () => {
   it("自愈:清理上次运行残留的同名测试卡片", async () => {
@@ -34,7 +29,11 @@ describe("灵感便签 冒烟", () => {
   it("启动后主界面可见", async () => {
     const brand = await $(".brand");
     await brand.waitForExist({ timeout: 20000 });
-    assert.equal(await brand.getText(), "灵感便签");
+    const brandText = await brand.getText();
+    assert.ok(
+      BRAND_NAMES.includes(brandText),
+      `品牌名不在支持的语言集合内:${brandText}`
+    );
   });
 
   it("FAB 新建待办,编辑器内填标题并添加 2 条待办", async () => {
@@ -75,13 +74,13 @@ describe("灵感便签 冒烟", () => {
   it("日历筛选:选今天仍可见,清除筛选后恢复", async () => {
     await $(".dp-btn").click();
     await $(".dp-panel").waitForExist({ timeout: 5000 });
-    await (await buttonByText("今天")).click();
+    await $('[data-testid="dp-today"]').click();
     // 该卡创建于今天,筛选后仍应可见
     await $(".card").waitForExist({ timeout: 5000 });
 
     await $(".dp-btn").click();
     await $(".dp-panel").waitForExist({ timeout: 5000 });
-    await (await buttonByText("清除筛选")).click();
+    await $('[data-testid="dp-clear"]').click();
     await $(".card").waitForExist({ timeout: 5000 });
   });
 

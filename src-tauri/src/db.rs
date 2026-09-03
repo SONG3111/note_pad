@@ -234,7 +234,7 @@ pub fn update_note(conn: &Connection, id: &str, input: &UpdateNoteInput) -> Resu
     }
 
     if clauses.is_empty() {
-        return Err("没有需要更新的字段".into());
+        return Err("NO_FIELDS_TO_UPDATE".into());
     }
     clauses.push("updated_at = ?".to_string());
     values.push(&t);
@@ -245,7 +245,7 @@ pub fn update_note(conn: &Connection, id: &str, input: &UpdateNoteInput) -> Resu
     );
     let n = conn.execute(sql.as_str(), values.as_slice()).map_err(|e| e.to_string())?;
     if n == 0 {
-        return Err("便签不存在".into());
+        return Err("NOTE_NOT_FOUND".into());
     }
     get_note(conn, id).map_err(|e| e.to_string())
 }
@@ -271,14 +271,14 @@ pub fn delete_note(conn: &Connection, id: &str) -> Result<(), String> {
         .execute("UPDATE notes SET deleted_at = ?1 WHERE id = ?2 AND deleted_at IS NULL", params![now_ms(), id])
         .map_err(|e| e.to_string())?;
     if n == 0 {
-        return Err("便签不存在".into());
+        return Err("NOTE_NOT_FOUND".into());
     }
     Ok(())
 }
 
 pub fn add_item(conn: &Connection, note_id: &str, text: &str) -> Result<TodoItem, String> {
     if text.trim().is_empty() {
-        return Err("内容不能为空".into());
+        return Err("CONTENT_EMPTY".into());
     }
     let max_order: i64 = conn
         .query_row(
@@ -311,11 +311,11 @@ pub fn update_item(conn: &Connection, id: &str, text: Option<&str>, checked: Opt
         .optional()
         .map_err(|e| e.to_string())?;
     let Some(note_id) = existing else {
-        return Err("待办不存在".into());
+        return Err("ITEM_NOT_FOUND".into());
     };
     if let Some(t) = text {
         if t.trim().is_empty() {
-            return Err("内容不能为空".into());
+            return Err("CONTENT_EMPTY".into());
         }
         conn.execute("UPDATE todo_items SET text = ?1, updated_at = ?2 WHERE id = ?3", params![t.trim(), now_ms(), id])
             .map_err(|e| e.to_string())?;
@@ -339,7 +339,7 @@ pub fn delete_item(conn: &Connection, id: &str) -> Result<String, String> {
         .map_err(|e| e.to_string())?;
     let n = conn.execute("DELETE FROM todo_items WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
     if n == 0 {
-        return Err("待办不存在".into());
+        return Err("ITEM_NOT_FOUND".into());
     }
     if let Some(nid) = &note_id {
         touch_note(conn, nid)?;
@@ -432,7 +432,7 @@ mod tests {
         let conn = mem();
         let n = create_note(&conn, &note_input("note", Some("t"))).unwrap();
         let err = update_note(&conn, &n.note.id, &UpdateNoteInput::default()).unwrap_err();
-        assert_eq!(err, "没有需要更新的字段");
+        assert_eq!(err, "NO_FIELDS_TO_UPDATE");
     }
 
     #[test]
@@ -443,7 +443,7 @@ mod tests {
             ..Default::default()
         };
         let err = update_note(&conn, "no-such-id", &input).unwrap_err();
-        assert_eq!(err, "便签不存在");
+        assert_eq!(err, "NOTE_NOT_FOUND");
     }
 
     /// double_option 的核心语义:字段缺失(不动) / null(清空) / 有值(修改) 三态
@@ -486,7 +486,7 @@ mod tests {
         assert!(get_note(&conn, &n.note.id).is_err());
 
         // 已删除再删 → 报错而非静默成功
-        assert_eq!(delete_note(&conn, &n.note.id).unwrap_err(), "便签不存在");
+        assert_eq!(delete_note(&conn, &n.note.id).unwrap_err(), "NOTE_NOT_FOUND");
 
         // 软删除的行仍在库里(deleted_at 有值)
         let deleted_at: Option<i64> = conn
@@ -514,7 +514,7 @@ mod tests {
         assert!(touched.note.updated_at > before_updated);
 
         // 空文本拒绝
-        assert_eq!(add_item(&conn, &n.note.id, "   ").unwrap_err(), "内容不能为空");
+        assert_eq!(add_item(&conn, &n.note.id, "   ").unwrap_err(), "CONTENT_EMPTY");
 
         // 不存在的笔记:外键依赖由应用层保证,这里仍应失败于 touch_note
         assert!(add_item(&conn, "no-such-note", "x").is_err());
@@ -542,9 +542,9 @@ mod tests {
         assert!(updated.checked);
 
         // 不存在的项
-        assert_eq!(update_item(&conn, "nope", Some("x"), None).unwrap_err(), "待办不存在");
+        assert_eq!(update_item(&conn, "nope", Some("x"), None).unwrap_err(), "ITEM_NOT_FOUND");
         // 空文本拒绝
-        assert_eq!(update_item(&conn, &item.id, Some("  "), None).unwrap_err(), "内容不能为空");
+        assert_eq!(update_item(&conn, &item.id, Some("  "), None).unwrap_err(), "CONTENT_EMPTY");
     }
 
     #[test]

@@ -3,9 +3,11 @@
 // 自研轻量实现(无第三方依赖),视觉跟随应用主题变量。
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { storeToRefs } from "pinia";
+import { useI18n } from "vue-i18n";
 import { useNotesStore } from "../stores/notes";
 import { dateKey } from "../types";
 
+const { t, tm, locale } = useI18n();
 const store = useNotesStore();
 const { dateFilter } = storeToRefs(store);
 
@@ -25,7 +27,10 @@ const notedDates = computed(() => {
 const todayKey = dateKey(Date.now());
 
 // 6x7 网格:从本周周一起始,覆盖当月完整的前后补位
-const WEEK_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
+const weekLabels = computed(() => {
+  const msgs = tm("datePicker.weekDays");
+  return Array.isArray(msgs) ? msgs.map((m) => String(m)) : [];
+});
 const cells = computed(() => {
   const first = new Date(viewYear.value, viewMonth.value, 1);
   // getDay(): 0=周日..6=周六 → 换算成周一起始的偏移
@@ -43,7 +48,12 @@ const cells = computed(() => {
   return out;
 });
 
-const monthLabel = computed(() => `${viewYear.value}年${viewMonth.value + 1}月`);
+// 月标题用 Intl 按当前语言格式化:中文"2026年9月",英文"September 2026"
+const monthLabel = computed(() =>
+  new Intl.DateTimeFormat(locale.value, { year: "numeric", month: "long" }).format(
+    new Date(viewYear.value, viewMonth.value, 1),
+  ),
+);
 
 function prevMonth() {
   const m = new Date(viewYear.value, viewMonth.value - 1, 1);
@@ -99,7 +109,7 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocPointerDo
   <div ref="rootRef" class="datepick" :class="{ active: !!dateFilter }">
     <button
       class="dp-btn"
-      :title="dateFilter ? `按 ${dateFilter} 筛选中,点击选择其他日期` : '按日期筛选'"
+      :title="dateFilter ? t('datePicker.filterActive', { date: dateFilter }) : t('datePicker.filter')"
       @click="toggleOpen"
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -113,17 +123,17 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocPointerDo
          400px 窗口内完整可见(旧版 left:0 向右展开会被右缘裁掉) -->
     <div v-if="open" class="dp-panel">
       <div class="dp-head">
-        <button class="dp-nav" title="上个月" @click="prevMonth">
+        <button class="dp-nav" :title="t('datePicker.prevMonth')" @click="prevMonth">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
         </button>
         <span class="dp-month">{{ monthLabel }}</span>
-        <button class="dp-nav" title="下个月" @click="nextMonth">
+        <button class="dp-nav" :title="t('datePicker.nextMonth')" @click="nextMonth">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6" /></svg>
         </button>
       </div>
 
       <div class="dp-grid">
-        <span v-for="w in WEEK_LABELS" :key="w" class="dp-week">{{ w }}</span>
+        <span v-for="w in weekLabels" :key="w" class="dp-week">{{ w }}</span>
         <button
           v-for="c in cells"
           :key="c.key"
@@ -141,8 +151,8 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocPointerDo
       </div>
 
       <div class="dp-foot">
-        <button class="dp-act" @click="pickToday">今天</button>
-        <button class="dp-act" :disabled="!dateFilter" @click="clear">清除筛选</button>
+        <button class="dp-act" data-testid="dp-today" @click="pickToday">{{ t("datePicker.today") }}</button>
+        <button class="dp-act" data-testid="dp-clear" :disabled="!dateFilter" @click="clear">{{ t("datePicker.clearFilter") }}</button>
       </div>
     </div>
   </div>

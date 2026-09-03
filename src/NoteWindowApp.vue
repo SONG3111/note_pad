@@ -3,13 +3,16 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { useI18n } from "vue-i18n";
 import { useNotesStore } from "./stores/notes";
 import { NOTE_COLORS, type NoteWithItems, type TodoItem } from "./types";
 import { mapCardColor } from "./colors";
 import { celebrateAllDone } from "./celebrate";
+import { appLocale } from "./composables/useLocale";
 import TodoCheckbox from "./components/TodoCheckbox.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 
+const { t } = useI18n();
 const appWindow = getCurrentWindow();
 const label = appWindow.label;
 const noteId = label.replace(/^note-/, "");
@@ -195,6 +198,11 @@ const doneCount = computed(() => items.value.filter((i) => i.checked).length);
 const progress = computed(() =>
   items.value.length === 0 ? 0 : Math.round((doneCount.value / items.value.length) * 100)
 );
+
+// 语言切换后同步窗口标题(任务栏/Alt+Tab 显示用)
+watch(appLocale, () => {
+  void appWindow.setTitle(t("app.name"));
+});
 </script>
 
 <template>
@@ -205,19 +213,19 @@ const progress = computed(() =>
         <button
           class="tool-btn"
           :class="{ active: onTop }"
-          :title="onTop ? '取消置顶' : '置顶显示'"
+          :title="onTop ? t('noteWindow.unpinTitle') : t('noteWindow.pinTitle')"
           @click="togglePin"
         >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 17v5M9 3h6l1 7 3 3H5l3-3 1-7z"/>
           </svg>
         </button>
-        <button class="tool-btn danger" title="删除便签" @click="confirmDelete = true">
+        <button class="tool-btn danger" :title="t('noteWindow.deleteNote')" @click="confirmDelete = true">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M10 11v6M14 11v6"/>
           </svg>
         </button>
-        <button class="tool-btn close" title="关闭并放回列表" @click="closeWindow">
+        <button class="tool-btn close" :title="t('noteWindow.closeBack')" @click="closeWindow">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
             <path d="M18 6L6 18M6 6l12 12"/>
           </svg>
@@ -225,15 +233,15 @@ const progress = computed(() =>
       </div>
     </header>
 
-    <p v-if="missing" class="missing">该便签不存在或已删除</p>
+    <p v-if="missing" class="missing">{{ t("noteWindow.missing") }}</p>
 
     <div v-else-if="note" class="body">
-      <input v-model="title" class="title-input" placeholder="标题" />
+      <input v-model="title" class="title-input" :placeholder="t('editor.titlePlaceholder')" />
       <textarea
         v-if="!isTodo"
         v-model="content"
         class="content-input"
-        placeholder="记录你的想法…"
+        :placeholder="t('editor.contentPlaceholder')"
       ></textarea>
 
       <div v-else class="todo-editor">
@@ -250,12 +258,12 @@ const progress = computed(() =>
               :value="item.text"
               @blur="(e) => updateItemText(item.id, (e.target as HTMLInputElement).value.trim())"
             />
-            <button class="row-del" title="删除此项" @click="removeItem(item.id)">
+            <button class="row-del" :title="t('editor.deleteItem')" @click="removeItem(item.id)">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
             </button>
           </div>
         </div>
-        <input v-model="newItemText" class="new-item" placeholder="+ 添加待办,回车确认" @keydown.enter.prevent="addOnEnter" />
+        <input v-model="newItemText" class="new-item" :placeholder="t('editor.addItemPlaceholder')" @keydown.enter.prevent="addOnEnter" />
       </div>
 
       <div class="colors">
@@ -272,7 +280,10 @@ const progress = computed(() =>
 
     <ConfirmDialog
       :open="confirmDelete"
-      message="删除后无法恢复,确定要删除这条记录吗?"
+      :title="t('dialog.deleteTitle')"
+      :message="t('dialog.deleteMessage')"
+      :confirm-text="t('dialog.delete')"
+      :cancel-text="t('dialog.cancel')"
       @confirm="doDelete"
       @cancel="confirmDelete = false"
     />
