@@ -3,7 +3,7 @@ import type zhCN from "./zh-CN";
 
 const enUS: typeof zhCN = {
   app: {
-    name: "Inkling Notes",
+    name: "Inspiration Notes",
   },
   settings: {
     switchLanguage: "Switch language",

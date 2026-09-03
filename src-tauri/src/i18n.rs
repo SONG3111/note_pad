@@ -33,7 +33,7 @@ impl AppLocale {
     pub fn app_title(self) -> &'static str {
         match self {
             Self::Zh => "灵感便签",
-            Self::En => "Inkling Notes",
+            Self::En => "Inspiration Notes",
         }
     }
 
@@ -47,7 +47,7 @@ impl AppLocale {
     pub fn tray_quit(self) -> &'static str {
         match self {
             Self::Zh => "退出灵感便签",
-            Self::En => "Quit Inkling Notes",
+            Self::En => "Quit Inspiration Notes",
         }
     }
 }

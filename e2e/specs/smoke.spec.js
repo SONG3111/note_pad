@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 const TITLE = "E2E 冒烟测试待办";
 
 // 应用支持中英双语,断言一律用 data-testid/类名定位,不依赖界面语言
-const BRAND_NAMES = ["灵感便签", "Inkling Notes"];
+const BRAND_NAMES = ["灵感便签", "Inspiration Notes"];
 
 describe("灵感便签 冒烟", () => {
   it("自愈:清理上次运行残留的同名测试卡片", async () => {

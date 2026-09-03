@@ -1,18 +1,22 @@
 ﻿# ============================================================
-# 灵感便签 (Note Pad) - Build MSIX package script (Windows)
+# 灵感便签 (Inspiration Notes) - Build MSIX package script (Windows)
 #
 # NOTE: This script CONTAINS Chinese strings (DisplayName/Description).
 #       It MUST be saved as UTF-8 WITH BOM. PowerShell 5.1 misreads
 #       BOM-less UTF-8 Chinese and corrupts variable parsing.
 #
-# Purpose: produce a local-site/installation MSIX for testing.
+# Purpose: produce the MSIX for BOTH local sideload testing AND
+# Microsoft Store submission.
 #
-# For Microsoft Store submission you do NOT use this script's
-# self-signed flow. Instead:
-#   - Manifests Publisher must equal your Partner Center Publisher
-#   - Sign the MSIX following the Store signing/submission flow
-#   - You do NOT need to purchase a third-party OV cert for Store
-# So this script is for local sideload testing only.
+# Store flow (current Partner Center behavior):
+#   - Manifest Identity/Publisher MUST equal the Store-assigned
+#     "Product identity" (see $Identity / $Publisher below)
+#   - The uploaded MSIX may be signed with a self-signed cert whose
+#     Subject equals the Store Publisher - Partner Center validates
+#     identity/reserved names, and the Store re-signs on publish.
+#   - No third-party OV cert purchase is needed.
+# Local sideload: import the exported _test.cer into LocalMachine\Root
+# (admin PowerShell) before Add-AppxPackage.
 # ============================================================
 
 $ErrorActionPreference = "Stop"
@@ -21,17 +25,26 @@ $Kit      = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64"
 $MakeAppx = Join-Path $Kit "makeappx.exe"
 $Signtool = Join-Path $Kit "signtool.exe"
 
-# Tauri / package identity (single source of truth - must match
-# tauri.conf.json identifier and, once created, Store App identity)
-$Identity   = "com.songqulv.notepad"
+# Store-assigned Product identity (Partner Center → 产品标识/Product
+# identity). The manifest Identity Name / Publisher MUST be exactly
+# these values or Store validation fails.
+# NOTE: decoupled from the Tauri identifier (com.songqulv.notepad in
+# tauri.conf.json) - the Tauri identifier only decides the app data
+# dir (%APPDATA%) and single-instance key; it does NOT have to match
+# the Store Identity Name. Keep tauri.conf.json as-is to preserve
+# existing user data (notepad.db).
+$Identity   = "QulvSong.33225947F1D38"
+# Tauri v2 binary name follows the Cargo package name (note_pad), NOT
+# productName. The exe filename is invisible to users inside the MSIX;
+# display name comes from strings\<lang>\Resources.resw.
 $AppExeName = "note_pad.exe"
 
-# Publisher: read from env so you can switch between local and Store
-# without editing code.
-#   local:  $env:MSIX_PUBLISHER="CN=NotePadDev"
-#   store:  $env:MSIX_PUBLISHER="CN=<Partner Center Publisher ID>"
+# Publisher: read from env so you can switch without editing code.
+# Default = Partner Center Publisher ID (Store submission + local
+# sideload of the same package). The self-signed cert below uses this
+# Subject, so the exported _test.cer works for local trust.
 if (-not $env:MSIX_PUBLISHER) {
-  $env:MSIX_PUBLISHER = "CN=NotePadDev"   # local sideload only
+  $env:MSIX_PUBLISHER = "CN=5BFC349F-8B02-451C-B5B6-AAB9DE324742"
 }
 $Publisher = $env:MSIX_PUBLISHER
 
@@ -40,7 +53,7 @@ $Version = "0.4.0"
 $Root    = "src-tauri\target\release\bundle\msix"
 $Stage   = Join-Path $Root "stage"
 $Assets  = Join-Path $Stage "Assets"
-$Base    = "NotePad_" + $Version + "_x64"
+$Base    = "InspirationNotes_" + $Version + "_x64"
 $Out     = Join-Path $Root ($Base + ".msix")
 $Pfx     = Join-Path $Root ($Base + "_test.pfx")
 $Cer     = Join-Path $Root ($Base + "_test.cer")
@@ -75,9 +88,10 @@ foreach ($k in $icons.Keys) {
 }
 
 # ---- 2. write AppxManifest.xml ----
-# DisplayName/Description 用 ms-resource: 令牌,由 strings\<lang>\Resources.resw
-# (步骤 2b)+ resources.pri(步骤 2c)按系统语言解析:中文系统显示"灵感便签",
-# 英文系统显示 "Inkling Notes"。
+# DisplayName 硬编码为"灵感便签"(Partner Center 已保留的名称,所有语言
+# 统一显示,避免"使用了你未保留的显示名称"上传校验错误)。
+# Description 仍用 ms-resource: 令牌,由 strings\<lang>\Resources.resw
+# (步骤 2b)+ resources.pri(步骤 2c)按系统语言解析。
 $VersionFull = $Version + ".0"
 $manifest = @"
 <?xml version="1.0" encoding="utf-8"?>
@@ -92,8 +106,8 @@ $manifest = @"
             Version="$VersionFull"
             ProcessorArchitecture="x64" />
   <Properties>
-    <DisplayName>ms-resource:AppDisplayName</DisplayName>
-    <PublisherDisplayName>Qulv Studio</PublisherDisplayName>
+    <DisplayName>灵感便签</DisplayName>
+    <PublisherDisplayName>QulvSong</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
   <Dependencies>
@@ -106,7 +120,7 @@ $manifest = @"
   <Applications>
     <Application Id="App" Executable="$AppExeName" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="ms-resource:AppDisplayName"
+        DisplayName="灵感便签"
         Description="ms-resource:AppDescription"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
@@ -127,7 +141,7 @@ $manifest = @"
 $manifestPath = Join-Path $Stage "AppxManifest.xml"
 $manifest | Set-Content -Path $manifestPath -Encoding UTF8
 
-if (-not (Select-String -Path $manifestPath -Pattern "ms-resource:AppDisplayName" -Quiet)) {
+if (-not (Select-String -Path $manifestPath -Pattern "ms-resource:AppDescription" -Quiet)) {
   throw "Manifest missing ms-resource tokens - manifest template is broken"
 }
 
@@ -144,7 +158,7 @@ $reswTemplate = @"
 </root>
 "@
 $reswZh = $reswTemplate -f "灵感便签", "轻量级便签与待办应用，支持边缘贴靠。"
-$reswEn = $reswTemplate -f "Inkling Notes", "A lightweight sticky notes and to-do app with edge snapping."
+$reswEn = $reswTemplate -f "Inspiration Notes", "A lightweight sticky notes and to-do app with edge snapping."
 
 New-Item -ItemType Directory -Force -Path (Join-Path $Stage "strings\zh-CN") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Stage "strings\en-US") | Out-Null
@@ -188,16 +202,18 @@ Write-Host "==> packing..."
 if ($LASTEXITCODE -ne 0) { throw "makeappx pack failed" }
 
 # ---- 4. self-signed cert (local test only) ----
+# Subject = Publisher so the same package can be sideloaded locally
+# (after trusting _test.cer) and submitted to the Store (re-signed).
 $Cert = Get-ChildItem Cert:\CurrentUser\My -ErrorAction SilentlyContinue |
-        Where-Object { $_.Subject -like "*NotePadDev*" } | Select-Object -First 1
+        Where-Object { $_.Subject -eq $Publisher } | Select-Object -First 1
 if (-not $Cert) {
   Write-Host "==> creating self-signed test cert..."
   $Cert = New-SelfSignedCertificate -Type Custom -Subject $Publisher `
     -KeyExportPolicy Exportable -KeyUsage DigitalSignature `
     -KeyAlgorithm RSA -KeyLength 2048 -CertStoreLocation Cert:\CurrentUser\My `
-    -NotAfter (Get-Date).AddYears(3) -FriendlyName "NotePadTestCert"
+    -NotAfter (Get-Date).AddYears(3) -FriendlyName "InspirationNotesTestCert"
 }
-$PfxPass = "NotePadTestPwd123!"
+$PfxPass = "InspirationNotesTestPwd123!"
 Export-PfxCertificate -Cert $Cert -FilePath $Pfx -Password (ConvertTo-SecureString $PfxPass -AsPlainText -Force) -Force | Out-Null
 Export-Certificate   -Cert $Cert -FilePath $Cer | Out-Null
 
