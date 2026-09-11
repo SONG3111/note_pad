@@ -45,3 +45,6 @@ skills-lock.json
 
 # ZCode 会话产物(计划文件等)
 .zcode/
+
+# Mimosa 安全扫描插件的状态与基线快照
+.mimosa/
