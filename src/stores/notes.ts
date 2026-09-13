@@ -46,13 +46,14 @@ export const useNotesStore = defineStore("notes", () => {
       });
     }
 
-    // 置顶(无论类型)永远最前;其余按时间倒序;"全部"tab 下同层级内待办排在便签前面
+    // 置顶(无论类型)永远最前;其余按创建时间倒序(左下角时间是 updatedAt,不影响顺序);
+    // "全部"tab 下同层级内待办排在便签前面
     const sorted = [...list];
     const pinRank = (n: NoteWithItems) => (n.pinned ? 0 : 1);
     const typeRank = (n: NoteWithItems) =>
       viewFilter.value === "all" ? (n.type === "todo" ? 0 : 1) : 0;
     sorted.sort(
-      (a, b) => pinRank(a) - pinRank(b) || typeRank(a) - typeRank(b) || b.updatedAt - a.updatedAt
+      (a, b) => pinRank(a) - pinRank(b) || typeRank(a) - typeRank(b) || b.createdAt - a.createdAt
     );
     return sorted;
   });
@@ -130,9 +131,13 @@ export const useNotesStore = defineStore("notes", () => {
     notes.value.sort((a, b) => Number(b.pinned) - Number(a.pinned));
   }
 
+  // 待办项级操作后端只返回 TodoItem(touch_note 刷新的笔记 updated_at 不在其中),
+  // 而主窗口会跳过自己发出的 notes-changed 事件,这里补拉一次笔记,
+  // 保证卡片左下角的更新时间与 updatedAt 排序即时生效
   async function addItem(noteId: string, text: string) {
     const item = await invoke<TodoItem>("add_todo_item", { noteId, text });
     find(noteId)?.items.push(item);
+    await refreshNote(noteId);
   }
 
   async function updateItem(noteId: string, itemId: string, patch: { text?: string; checked?: boolean }) {
@@ -156,12 +161,25 @@ export const useNotesStore = defineStore("notes", () => {
         celebrateAllDone();
       }
     }
+    await refreshNote(noteId);
   }
 
   async function removeItem(noteId: string, itemId: string) {
     await invoke("delete_todo_item", { id: itemId });
     const note = find(noteId);
     if (note) note.items = note.items.filter((i) => i.id !== itemId);
+    await refreshNote(noteId);
+  }
+
+  // 设置/清除待办提醒(remindAt 为 null 表示清除)
+  async function setReminder(noteId: string, itemId: string, remindAt: number | null) {
+    const item = await invoke<TodoItem>("set_todo_reminder", { id: itemId, remindAt });
+    const note = find(noteId);
+    if (note) {
+      const idx = note.items.findIndex((i) => i.id === itemId);
+      if (idx >= 0) note.items[idx] = item;
+    }
+    await refreshNote(noteId);
   }
 
   return {
@@ -184,6 +202,7 @@ export const useNotesStore = defineStore("notes", () => {
     addItem,
     updateItem,
     removeItem,
+    setReminder,
     find,
   };
 });

@@ -9,6 +9,8 @@ export interface TodoItem {
   checked: boolean;
   sortOrder: number;
   updatedAt: number;
+  /** 单次提醒时间(Unix 毫秒);null = 未设置,触发后由后端调度清除 */
+  remindAt: number | null;
 }
 
 export interface Note {
@@ -63,4 +65,42 @@ export function dateKey(ts: number): string {
 export function formatDateLabel(key: string, locale: AppLocale): string {
   const [, m, d] = key.split("-").map(Number);
   return locale === "zh-CN" ? `${m}月${d}日` : `${m}/${d}`;
+}
+
+/// 提醒时间展示文案:"9月11日 14:30"/"Sep 11, 2:30 PM"(跨年时带年份)
+export function formatReminderTime(ts: number, locale: AppLocale): string {
+  const d = new Date(ts);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  const date = d.toLocaleDateString(locale, {
+    // zh 的 numeric 输出是 "9/11",用 long 才是 "9月11日";en 用 short 得 "Sep 11"
+    month: locale === "zh-CN" ? "long" : "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+  const time = d.toLocaleTimeString(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: locale !== "zh-CN",
+  });
+  return locale === "zh-CN" ? `${date} ${time}` : `${date}, ${time}`;
+}
+
+/// 提醒时间的紧凑文案(窄行内联标签用):今天的提醒只显示时间,
+/// 同年的 en 用数字日期 + 不补零小时("9/11 2:30 PM"),zh 维持 "9月11日 14:30"
+export function formatReminderShort(ts: number, locale: AppLocale): string {
+  const d = new Date(ts);
+  const time = d.toLocaleTimeString(locale, {
+    hour: locale === "zh-CN" ? "2-digit" : "numeric",
+    minute: "2-digit",
+    hour12: locale !== "zh-CN",
+  });
+  if (dateKey(ts) === dateKey(Date.now())) return time;
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  const date = d.toLocaleDateString(locale, {
+    // zh 的 numeric 输出是 "9/11",用 long 保持 "9月11日";en 用 numeric 得最短的 "9/11"
+    month: locale === "zh-CN" ? "long" : "numeric",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+  return `${date} ${time}`;
 }

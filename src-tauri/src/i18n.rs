@@ -50,6 +50,14 @@ impl AppLocale {
             Self::En => "Quit Inspiration Notes",
         }
     }
+
+    /// 系统通知标题(待办提醒触发时使用)
+    pub fn todo_reminder(self) -> &'static str {
+        match self {
+            Self::Zh => "待办提醒",
+            Self::En => "To-do reminder",
+        }
+    }
 }
 
 /// 全局语言状态:setup 时按系统语言初始化,前端切换语言时经 set_app_locale 命令写入

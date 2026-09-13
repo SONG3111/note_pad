@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import type { NoteWithItems } from "../types";
@@ -46,8 +46,8 @@ describe("DatePicker", () => {
     const wrapper = mountPicker();
     wrapper.find(".dp-btn").trigger("click");
     return vi.waitFor(() => {
-      expect(wrapper.findAll(".dp-week")).toHaveLength(7);
-      expect(wrapper.findAll(".dp-day")).toHaveLength(42);
+      expect(wrapper.findAll(".cal-week")).toHaveLength(7);
+      expect(wrapper.findAll(".cal-day")).toHaveLength(42);
     });
   });
 
@@ -57,20 +57,20 @@ describe("DatePicker", () => {
     store.notes = [makeNote("n1", today.getTime())];
     const wrapper = mountPicker();
     await wrapper.find(".dp-btn").trigger("click");
-    expect(wrapper.findAll(".dp-dot")).toHaveLength(1);
+    expect(wrapper.findAll(".cal-dot")).toHaveLength(1);
   });
 
   it("今天有高亮标识", async () => {
     const wrapper = mountPicker();
     await wrapper.find(".dp-btn").trigger("click");
-    expect(wrapper.find(".dp-day.today").exists()).toBe(true);
+    expect(wrapper.find(".cal-day.today").exists()).toBe(true);
   });
 
   it("点击日期写入 store 并收起面板", async () => {
     const store = useNotesStore();
     const wrapper = mountPicker();
     await wrapper.find(".dp-btn").trigger("click");
-    const todayCell = wrapper.find(".dp-day.today");
+    const todayCell = wrapper.find(".cal-day.today");
     await todayCell.trigger("click");
     expect(store.dateFilter).toBe(dateKeyOfToday());
     expect(wrapper.find(".dp-panel").exists()).toBe(false);
@@ -96,16 +96,16 @@ describe("DatePicker", () => {
     await wrapper.find(".dp-btn").trigger("click");
     const now = new Date();
     const label = (y: number, m: number) => `${y}年${m}月`;
-    const before = wrapper.find(".dp-month").text();
+    const before = wrapper.find(".cal-month").text();
     expect(before).toBe(label(now.getFullYear(), now.getMonth() + 1));
     // 第二个导航按钮是"下个月 ›",第一个是"上个月 ‹"
-    await wrapper.findAll(".dp-nav")[1]!.trigger("click");
+    await wrapper.findAll(".cal-nav")[1]!.trigger("click");
     const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    expect(wrapper.find(".dp-month").text()).toBe(label(next.getFullYear(), next.getMonth() + 1));
-    await wrapper.findAll(".dp-nav")[0]!.trigger("click");
-    await wrapper.findAll(".dp-nav")[0]!.trigger("click");
+    expect(wrapper.find(".cal-month").text()).toBe(label(next.getFullYear(), next.getMonth() + 1));
+    await wrapper.findAll(".cal-nav")[0]!.trigger("click");
+    await wrapper.findAll(".cal-nav")[0]!.trigger("click");
     const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    expect(wrapper.find(".dp-month").text()).toBe(label(prev.getFullYear(), prev.getMonth() + 1));
+    expect(wrapper.find(".cal-month").text()).toBe(label(prev.getFullYear(), prev.getMonth() + 1));
   });
 });
 
@@ -116,3 +116,31 @@ function dateKeyOfToday(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+
+describe("今天按钮", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("点击后写入当前日期键并收起面板", async () => {
+    const store = useNotesStore();
+    const wrapper = mountPicker();
+    await wrapper.find(".dp-btn").trigger("click");
+    await wrapper.find('[data-testid="dp-today"]').trigger("click");
+    expect(store.dateFilter).toBe(dateKeyOfToday());
+    expect(wrapper.find(".dp-panel").exists()).toBe(false);
+  });
+
+  // 回归:todayKey 曾在 setup 时缓存,长驻组件跨午夜后点击"今天"会写入昨天的日期键
+  it("跨午夜后点击写入的是新一天的日期键", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 13, 23, 59, 30));
+    const store = useNotesStore();
+    const wrapper = mountPicker();
+    // 推进系统时间过午夜(组件仍挂着,不重新 setup)
+    vi.setSystemTime(new Date(2026, 8, 14, 0, 0, 10));
+    await wrapper.find(".dp-btn").trigger("click");
+    await wrapper.find('[data-testid="dp-today"]').trigger("click");
+    expect(store.dateFilter).toBe("2026-09-14");
+  });
+});

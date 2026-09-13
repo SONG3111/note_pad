@@ -11,6 +11,8 @@ import { celebrateAllDone } from "./celebrate";
 import { appLocale } from "./composables/useLocale";
 import TodoCheckbox from "./components/TodoCheckbox.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
+import ReminderPicker from "./components/ReminderPicker.vue";
+import ReminderBadge from "./components/ReminderBadge.vue";
 
 const { t } = useI18n();
 const appWindow = getCurrentWindow();
@@ -162,6 +164,15 @@ async function removeItem(itemId: string) {
   } catch {}
 }
 
+// 设置/清除提醒:独立窗口不走 store,直接 invoke 并替换本行数据
+async function setReminder(itemId: string, remindAt: number | null) {
+  try {
+    const item = await invoke<TodoItem>("set_todo_reminder", { id: itemId, remindAt });
+    const idx = items.value.findIndex((i) => i.id === itemId);
+    if (idx >= 0) items.value[idx] = item;
+  } catch {}
+}
+
 async function doDelete() {
   confirmDelete.value = false;
   try {
@@ -250,17 +261,26 @@ watch(appLocale, () => {
             <div class="stats-bar"><div class="stats-fill" :style="{ width: progress + '%' }"></div></div>
             <span class="stats-text">{{ doneCount }}/{{ items.length }}</span>
           </div>
-          <div v-for="item in items" :key="item.id" class="item-row">
-            <TodoCheckbox :checked="item.checked" @change="toggleItem(item.id, !item.checked)" />
-            <input
-              class="item-text"
-              :class="{ done: item.checked }"
-              :value="item.text"
-              @blur="(e) => updateItemText(item.id, (e.target as HTMLInputElement).value.trim())"
-            />
-            <button class="row-del" :title="t('editor.deleteItem')" @click="removeItem(item.id)">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-            </button>
+          <div v-for="item in items" :key="item.id" class="item-block">
+            <div class="item-row">
+              <TodoCheckbox :checked="item.checked" @change="toggleItem(item.id, !item.checked)" />
+              <input
+                class="item-text"
+                :class="{ done: item.checked }"
+                :value="item.text"
+                @blur="(e) => updateItemText(item.id, (e.target as HTMLInputElement).value.trim())"
+              />
+              <ReminderPicker
+                v-if="!item.checked"
+                :remind-at="item.remindAt"
+                @set="(remindAt) => setReminder(item.id, remindAt)"
+              />
+              <button class="row-del" :title="t('editor.deleteItem')" @click="removeItem(item.id)">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <!-- 提醒时间放文字下方第二行(Things 3 式),不占行内横向空间 -->
+            <ReminderBadge v-if="!item.checked && item.remindAt" :remind-at="item.remindAt" />
           </div>
         </div>
         <input v-model="newItemText" class="new-item" :placeholder="t('editor.addItemPlaceholder')" @keydown.enter.prevent="addOnEnter" />
@@ -437,6 +457,9 @@ body {
   font-size: 11.5px;
   color: var(--text-muted);
   white-space: nowrap;
+}
+.item-block {
+  min-width: 0;
 }
 .item-row {
   display: flex;

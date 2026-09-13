@@ -69,14 +69,29 @@ const enUS: typeof zhCN = {
   datePicker: {
     filter: "Filter by date",
     filterActive: "Filtering by {date}. Click to pick another date",
-    prevMonth: "Previous month",
-    nextMonth: "Next month",
     today: "Today",
     clearFilter: "Clear filter",
+  },
+  calendar: {
     weekDays: ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
+    prevMonth: "Previous month",
+    nextMonth: "Next month",
   },
   celebrate: {
     allDone: "All done!",
+  },
+  reminder: {
+    set: "Set reminder",
+    edit: "Edit reminder",
+    clear: "Clear reminder",
+    customTime: "Custom time",
+    hour: "Hour",
+    minute: "Minute",
+    badgeTitle: "Reminder: {time}",
+  },
+  timeSelect: {
+    increase: "Increase",
+    decrease: "Decrease",
   },
   errors: {
     DB_BUSY: "Database is busy",
@@ -85,6 +100,7 @@ const enUS: typeof zhCN = {
     ITEM_NOT_FOUND: "To-do item not found",
     CONTENT_EMPTY: "Content cannot be empty",
     NO_FIELDS_TO_UPDATE: "No fields to update",
+    ITEM_CHECKED: "To-do is already completed",
   },
 };
 

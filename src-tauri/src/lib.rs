@@ -3,6 +3,8 @@ mod db;
 mod i18n;
 #[cfg(desktop)]
 mod dock;
+mod reminder;
+mod sound;
 
 use std::sync::{Arc, Mutex};
 
@@ -29,7 +31,7 @@ where
 }
 
 /// 变更事件负载:携带来源窗口标签,接收方可跳过自己发出的变更,避免无谓回拉
-fn changed_payload(id: &str, source: &str) -> serde_json::Value {
+pub(crate) fn changed_payload(id: &str, source: &str) -> serde_json::Value {
     serde_json::json!({ "id": id, "source": source })
 }
 
@@ -170,6 +172,20 @@ async fn delete_todo_item(app: AppHandle, window: tauri::Window, state: State<'_
     Ok(())
 }
 
+/// 设置/清除待办项提醒(remindAt 为 null 表示清除);完成后由 update_todo_item 自动取消
+#[tauri::command]
+async fn set_todo_reminder(
+    app: AppHandle,
+    window: tauri::Window,
+    state: State<'_, Db>,
+    id: String,
+    remind_at: Option<i64>,
+) -> CmdResult<TodoItem> {
+    let item = with_conn(state.0.clone(), move |conn| db::set_reminder(conn, &id, remind_at)).await?;
+    let _ = app.emit("notes-changed", changed_payload(&item.note_id, window.label()));
+    Ok(item)
+}
+
 #[cfg(desktop)]
 fn reveal_and_focus(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
@@ -229,11 +245,15 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let db_path = data_dir.join("notepad.db");
             let conn = db::init(&db_path).map_err(std::io::Error::other)?;
             app.manage(Db(Arc::new(Mutex::new(conn))));
+
+            // 待办提醒调度:常驻后台线程扫描到期项并发系统通知
+            reminder::spawn(app.handle().clone());
 
             #[cfg(desktop)]
             {
@@ -312,6 +332,7 @@ pub fn run() {
             add_todo_item,
             update_todo_item,
             delete_todo_item,
+            set_todo_reminder,
             detach_note_window,
             set_window_on_top,
             set_app_locale

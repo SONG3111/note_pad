@@ -245,6 +245,7 @@ function closeEditor(isEmpty?: boolean) {
               @toggle-item="(itemId, checked) => store.updateItem(note.id, itemId, { checked })"
               @update-item-text="(itemId, text) => store.updateItem(note.id, itemId, { text })"
               @remove-item="(itemId) => store.removeItem(note.id, itemId)"
+              @set-reminder="(itemId, remindAt) => store.setReminder(note.id, itemId, remindAt)"
             />
           </Teleport>
         </template>

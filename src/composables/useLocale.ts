@@ -29,7 +29,11 @@ function applyLocale(loc: AppLocale) {
 
 /** 窗口挂载前调用:解析并应用语言,同时监听其他窗口的切换广播 */
 export function initLocale() {
-  applyLocale(resolveInitialLocale());
+  const loc = resolveInitialLocale();
+  applyLocale(loc);
+  // Rust 侧启动只按系统语言初始化,持久化语言须在这里同步过去:
+  // 否则系统语言与用户选择不一致时,重启后托盘菜单与待办提醒通知标题会用错语言
+  invoke("set_app_locale", { locale: loc }).catch(() => {});
   // 其他窗口切换了语言 → 本窗口实时跟随(不回写存储、不再广播,避免循环)
   void listen<AppLocale>("app-locale-changed", (e) => {
     if (e.payload !== appLocale.value) applyLocale(e.payload);
