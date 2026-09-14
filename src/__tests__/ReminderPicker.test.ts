@@ -93,9 +93,12 @@ describe("ReminderPicker 交互", () => {
   it("更改小时提交新提醒且不关面板(便于继续微调)", async () => {
     const wrapper = mountPicker();
     await openPanel(wrapper);
-    // 时/分是步进输入框:键入 10 后回车提交
+    // 初始小时 = 当前时间+1 小时,目标值取与其必不相同的小时(避免时间依赖的偶发失败)
+    const initialHour = new Date(Date.now() + 3_600_000).getHours();
+    const target = (initialHour + 7) % 24;
+    // 时/分是步进输入框:键入目标小时后回车提交
     const hourInput = wrapper.find(".rp-time-row .ts-input");
-    await hourInput.setValue("10");
+    await hourInput.setValue(String(target));
     await hourInput.trigger("keydown", { key: "Enter" });
     const events = wrapper.emitted<[number]>("set");
     expect(events).toHaveLength(1);

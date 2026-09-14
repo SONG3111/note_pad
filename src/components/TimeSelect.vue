@@ -46,8 +46,11 @@ function commitDraft() {
   if (clamped !== props.modelValue) emit("update:modelValue", clamped);
 }
 
-// 单步增减,越过首尾时回绕(23→0 / 0→23)
+// 单步增减,越过首尾时回绕(23→0 / 0→23)。
+// 必须丢弃编辑草稿:聚焦期间草稿仍在会让 display 停在旧值,
+// 且失焦时 commitDraft 会把旧草稿提交回去,键盘步进看起来"无效"
 function step(delta: number) {
+  draft.value = null;
   const span = props.max + 1;
   emit("update:modelValue", (props.modelValue + delta + span) % span);
 }

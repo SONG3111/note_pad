@@ -79,13 +79,19 @@ export const useNotesStore = defineStore("notes", () => {
     }
   }
 
-  /// 接收其他窗口的变更:拉取最新数据合并;笔记已被删除则从列表移除
+  /// 接收其他窗口的变更/本地待办项操作后的补拉:拉取最新数据合并;
+  /// 仅在确认笔记已删除(NOTE_NOT_FOUND)时才从列表移除,
+  /// DB_BUSY 等瞬时错误保留本地数据,避免正在编辑的笔记凭空消失
   async function refreshNote(id: string) {
     try {
       const updated = await invoke<NoteWithItems>("get_note", { id });
       applyUpdate(updated);
-    } catch {
-      notes.value = notes.value.filter((n) => n.id !== id);
+    } catch (e) {
+      if (String(e).includes("NOTE_NOT_FOUND")) {
+        notes.value = notes.value.filter((n) => n.id !== id);
+      } else {
+        console.warn(`refreshNote(${id}) 失败,保留本地数据:`, e);
+      }
     }
   }
 

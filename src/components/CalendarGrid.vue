@@ -175,8 +175,12 @@ function nextMonth() {
   color: var(--text-faint);
   opacity: 0.55;
 }
+/* 今天:主题色实线圆环 + 主题色加粗数字;紧凑小格里灰色 1px 圈几乎不可见,
+   两个使用方(搜索日历/提醒日历)都依赖这条规则 */
 .cal-day.today {
-  box-shadow: inset 0 0 0 1px var(--border-strong);
+  box-shadow: inset 0 0 0 1.5px var(--accent-strong);
+  color: var(--accent-strong);
+  font-weight: 600;
 }
 .cal-day.selected {
   background: var(--accent);

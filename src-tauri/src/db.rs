@@ -164,7 +164,7 @@ pub fn list_notes(conn: &Connection) -> Result<Vec<NoteWithItems>, rusqlite::Err
          ORDER BY pinned DESC, created_at DESC",
     )?;
     let notes: Vec<Note> = stmt
-        .query_map([], |row| row_to_note(row))?
+        .query_map([], row_to_note)?
         .collect::<Result<_, _>>()?;
     let ids: Vec<String> = notes.iter().map(|n| n.id.clone()).collect();
     let mut items = load_items(conn, &ids)?;
@@ -287,11 +287,11 @@ pub fn get_note(conn: &Connection, id: &str) -> Result<NoteWithItems, rusqlite::
             "SELECT id, type, title, content, color, pinned, created_at, updated_at
              FROM notes WHERE id = ?1 AND deleted_at IS NULL",
             params![id],
-            |row| row_to_note(row),
+            row_to_note,
         )
         .optional()?
         .ok_or_else(|| rusqlite::Error::QueryReturnedNoRows)?;
-    let items = load_items(conn, &[note.id.clone()])?
+    let items = load_items(conn, std::slice::from_ref(&note.id))?
         .remove(note.id.as_str())
         .unwrap_or_default();
     Ok(NoteWithItems { note, items })

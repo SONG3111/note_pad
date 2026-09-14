@@ -137,12 +137,24 @@ describe("notes store - 数据操作走 invoke", () => {
     expect(store.find("n1")?.title).toBe("新标题");
   });
 
-  it("refreshNote 失败(已删除)时把记录从列表移除", async () => {
+  it("refreshNote 失败(NOTE_NOT_FOUND)时把记录从列表移除", async () => {
     const store = useNotesStore();
     store.notes = [makeNote({ id: "n1" })];
-    invokeMock.mockRejectedValue(new Error("gone"));
+    invokeMock.mockRejectedValue("NOTE_NOT_FOUND");
     await store.refreshNote("n1");
     expect(store.find("n1")).toBeUndefined();
+  });
+
+  it("refreshNote 瞬时失败(DB_BUSY)时保留本地数据不误删", async () => {
+    const store = useNotesStore();
+    store.notes = [makeNote({ id: "n1", title: "正在编辑" })];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    invokeMock.mockRejectedValue("DB_BUSY");
+    await store.refreshNote("n1");
+    // 瞬时错误:笔记仍在,数据未被破坏
+    expect(store.find("n1")?.title).toBe("正在编辑");
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   it("addItem 调用 invoke 追加待办项,并补拉刷新笔记 updatedAt", async () => {

@@ -4,6 +4,7 @@ mod i18n;
 #[cfg(desktop)]
 mod dock;
 mod reminder;
+mod notify;
 mod sound;
 
 use std::sync::{Arc, Mutex};
@@ -42,7 +43,17 @@ async fn list_notes(state: State<'_, Db>) -> CmdResult<Vec<NoteWithItems>> {
 
 #[tauri::command]
 async fn get_note(state: State<'_, Db>, id: String) -> CmdResult<NoteWithItems> {
-    with_conn(state.0.clone(), move |conn| db::get_note(conn, &id).map_err(|e| e.to_string())).await
+    with_conn(state.0.clone(), move |conn| {
+        db::get_note(conn, &id).map_err(|e| {
+            // 稳定的错误契约:前端依赖 NOTE_NOT_FOUND 区分"已删除"与瞬时 DB 错误
+            if matches!(e, rusqlite::Error::QueryReturnedNoRows) {
+                "NOTE_NOT_FOUND".to_string()
+            } else {
+                e.to_string()
+            }
+        })
+    })
+    .await
 }
 
 /// 把便签从主界面拖出为独立窗口:drag=true 表示来自拖拽手势(鼠标仍按住,可无缝续拖)
@@ -252,8 +263,20 @@ pub fn run() {
             let conn = db::init(&db_path).map_err(std::io::Error::other)?;
             app.manage(Db(Arc::new(Mutex::new(conn))));
 
+            // 应用语言:按系统语言初始化。必须先于 reminder::spawn:
+            // 调度线程首拍"启动即补发"就会用 i18n 状态,晚注册会让它 panic
+            #[cfg(desktop)]
+            let locale = i18n::AppLocale::from_system();
+            #[cfg(desktop)]
+            app.manage(i18n::AppState(std::sync::Mutex::new(locale)));
+
             // 待办提醒调度:常驻后台线程扫描到期项并发系统通知
             reminder::spawn(app.handle().clone());
+            // 通知身份(AUMID)预注册:后台线程执行,不阻塞启动
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || crate::notify::prewarm(&handle));
+            }
 
             #[cfg(desktop)]
             {
@@ -268,10 +291,6 @@ pub fn run() {
                         eprintln!("全局快捷键注册失败({e}),可能已有另一个实例在运行");
                     }
                 }
-
-                // 应用语言:按系统语言初始化,前端切换语言时经 set_app_locale 同步并重建托盘
-                let locale = i18n::AppLocale::from_system();
-                app.manage(i18n::AppState(std::sync::Mutex::new(locale)));
 
                 let show = MenuItem::with_id(app, "show", locale.tray_show(), true, None::<&str>)?;
                 let quit = MenuItem::with_id(app, "quit", locale.tray_quit(), true, None::<&str>)?;
@@ -313,13 +332,11 @@ pub fn run() {
                 let _ = window.hide();
             }
             // 独立窗口销毁:注销停靠管理并通知主界面恢复显示该便签
-            tauri::WindowEvent::Destroyed => {
-                if window.label().starts_with("note-") {
-                    #[cfg(desktop)]
-                    dock::unregister(window.label());
-                    let id = window.label().trim_start_matches("note-");
-                    let _ = window.app_handle().emit("note-window-closed", id);
-                }
+            tauri::WindowEvent::Destroyed if window.label().starts_with("note-") => {
+                #[cfg(desktop)]
+                dock::unregister(window.label());
+                let id = window.label().trim_start_matches("note-");
+                let _ = window.app_handle().emit("note-window-closed", id);
             }
             _ => {}
         })

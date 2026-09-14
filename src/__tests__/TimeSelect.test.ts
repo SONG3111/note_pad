@@ -93,4 +93,17 @@ describe("TimeSelect", () => {
     expect(wrapper.emitted("update:modelValue")).toHaveLength(2);
     expect((wrapper.find(".ts-input").element as HTMLInputElement).value).toBe("09");
   });
+
+  // 回归:聚焦期间草稿仍在会让键盘步进"看似无效并被失焦还原"
+  it("聚焦编辑中按 ↑↓ 步进:显示跟随新值,失焦不把旧草稿提交回去", async () => {
+    const wrapper = mountSelect(9, 23);
+    const input = wrapper.find(".ts-input");
+    await input.trigger("focus"); // 进入编辑,草稿 = "9"
+    await input.trigger("keydown", { key: "ArrowUp" }); // 发出 10
+    await wrapper.setProps({ modelValue: 10 });
+    expect((input.element as HTMLInputElement).value).toBe("10");
+    await input.trigger("blur"); // 修复前:把旧草稿 9 提交回去
+    expect(wrapper.emitted<[number]>("update:modelValue")).toHaveLength(1);
+    expect((wrapper.find(".ts-input").element as HTMLInputElement).value).toBe("10");
+  });
 });

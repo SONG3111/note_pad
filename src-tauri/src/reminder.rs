@@ -58,14 +58,22 @@ fn tick(app: &AppHandle) -> Result<(), String> {
     }
 
     // 通知文案:标题按当前语言本地化,正文 = 笔记标题 · 待办文本
-    let title = i18n::current(app).todo_reminder();
+    // try_state 容错:语言状态尚未注册时(异常启动顺序)不 panic,回退中文
+    let title = app
+        .try_state::<i18n::AppState>()
+        .map(|s| s.current())
+        .unwrap_or(i18n::AppLocale::Zh)
+        .todo_reminder();
     for r in &claimed {
         let body = match &r.note_title {
             Some(t) => format!("{t} · {}", r.text),
             None => r.text.clone(),
         };
-        if let Err(e) = app.notification().builder().title(title).body(body).show() {
-            eprintln!("系统通知发送失败({e})");
+        // 单入口发送(正确的应用图标);失败回退插件通知(未打包构建即 PowerShell 图标)
+        if crate::notify::send(app, title, &body).is_err() {
+            if let Err(e) = app.notification().builder().title(title).body(body).show() {
+                eprintln!("系统通知发送失败({e})");
+            }
         }
     }
 
