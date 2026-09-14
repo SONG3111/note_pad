@@ -114,6 +114,45 @@ describe("ReminderPicker 交互", () => {
     expect(wrapper.find(".rp-panel").exists()).toBe(false);
   });
 
+  it("选择当前分钟(已部分过去)保留精确时刻,不被静默 +60 秒", async () => {
+    // 回归:连续给多项设同一时刻时,晚提交的一项曾因 ts <= now 被钳到 +60s,与其他项错开约一分钟
+    const wrapper = mountPicker();
+    await openPanel(wrapper);
+    await wrapper.find(".cal-day.today").trigger("click");
+    const now = new Date();
+    const inputs = wrapper.findAll(".rp-time-row .ts-input");
+    await inputs[0].setValue(String(now.getHours()));
+    await inputs[0].trigger("keydown", { key: "Enter" });
+    await inputs[1].setValue(String(now.getMinutes()));
+    await inputs[1].trigger("keydown", { key: "Enter" });
+
+    const events = wrapper.emitted<[number]>("set")!;
+    const payload = events[events.length - 1][0];
+    // 提交期间跨分钟(偶发)时组件会按新当前分钟钳制,跳过精确断言避免时间依赖的偶发失败
+    if (new Date().getMinutes() === now.getMinutes()) {
+      expect(payload).toBe(new Date(now).setSeconds(0, 0));
+    }
+  });
+
+  it("选择上一分钟(真正错过)仍钳到提交时刻的约 1 分钟后", async () => {
+    const wrapper = mountPicker();
+    await openPanel(wrapper);
+    await wrapper.find(".cal-day.today").trigger("click");
+    const before = Date.now();
+    const prev = new Date(new Date(before).setSeconds(0, 0) - 60_000);
+    const inputs = wrapper.findAll(".rp-time-row .ts-input");
+    await inputs[0].setValue(String(prev.getHours()));
+    await inputs[0].trigger("keydown", { key: "Enter" });
+    await inputs[1].setValue(String(prev.getMinutes()));
+    await inputs[1].trigger("keydown", { key: "Enter" });
+
+    const events = wrapper.emitted<[number]>("set")!;
+    const payload = events[events.length - 1][0];
+    // 整分钟前的一刻必然触发钳制:结果落在 [提交前时刻+60s, 断言时时刻+60s] 区间内
+    expect(payload).toBeGreaterThanOrEqual(before + 60_000);
+    expect(payload).toBeLessThanOrEqual(Date.now() + 60_000);
+  });
+
   it("向上弹出时面板底部与铃铛的间距和向下弹一致(6px)", async () => {
     // 铃铛贴近视口底部触发向上翻转;面板实测高度 300(jsdom 无布局,mock offsetHeight)
     const PANEL_H = 300;

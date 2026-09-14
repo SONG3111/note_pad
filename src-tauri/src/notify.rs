@@ -7,7 +7,10 @@
 
 use std::sync::OnceLock;
 
+use tauri::Manager;
 use tauri_winrt_notification::Toast;
+
+use crate::i18n;
 
 #[cfg(windows)]
 use {
@@ -76,6 +79,39 @@ pub fn prewarm(app: &tauri::AppHandle) {
     }
 }
 
+/// 已知的其他语言快捷方式名:通知顶部的应用名按语言取自快捷方式文件名,
+/// 语言切换后旧语言的 .lnk 需清理,避免开始菜单双入口与 AUMID 解析歧义
+fn stale_display_names(current: &str) -> Vec<&'static str> {
+    [i18n::AppLocale::Zh.app_title(), i18n::AppLocale::En.app_title()]
+        .into_iter()
+        .filter(|name| *name != current)
+        .collect()
+}
+
+/// 语言切换后同步通知的应用名:重写当前语言的快捷方式并清理旧变体。
+/// AUMID 本身不变(OnceLock 缓存仍有效),只有承载显示名的 .lnk 需要刷新;
+/// 打包版(MSIX)名称来自包清单,无需此步
+pub fn sync_display_name(app: &tauri::AppHandle) {
+    #[cfg(windows)]
+    {
+        if has_package_identity() {
+            return;
+        }
+        let _guard = match REGISTER_LOCK.lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        let identifier = app.config().identifier.clone();
+        if let Err(e) = register_shortcut(app, &identifier) {
+            eprintln!("通知应用名同步失败({e})");
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+    }
+}
+
 #[cfg(windows)]
 fn win32_string_result(check: impl Fn(&mut u32, PWSTR) -> WIN32_ERROR) -> Option<String> {
     let mut len = 0u32;
@@ -114,15 +150,17 @@ fn register_shortcut(app: &tauri::AppHandle, identifier: &str) -> Result<(), Str
     // 注意用 std 而非 tauri::utils::platform::current_exe:后者带 \\?\ 前缀,
     // IShellLinkW::SetPath 会以 E_INVALIDARG 拒绝
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let product = app
-        .config()
-        .product_name
-        .clone()
-        .unwrap_or_else(|| "Inspiration Notes".into());
+    // 快捷方式名 = 通知顶部显示的应用名,按当前语言取(不用 productName:那是
+    // 语言无关的静态配置);locale 状态未就绪时(异常启动顺序)回退中文
+    let app_name = app
+        .try_state::<i18n::AppState>()
+        .map(|s| s.current())
+        .unwrap_or(i18n::AppLocale::Zh)
+        .app_title();
     let appdata = std::env::var("APPDATA").map_err(|_| "APPDATA 未设置".to_string())?;
     let dir = PathBuf::from(&appdata).join(r"Microsoft\Windows\Start Menu\Programs");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let lnk_path = dir.join(format!("{product}.lnk"));
+    let lnk_path = dir.join(format!("{app_name}.lnk"));
 
     unsafe {
         // 通知线程自己初始化 COM;已被初始化为 MTA 时(RPC_E_CHANGED_MODE)直接沿用
@@ -153,7 +191,29 @@ fn register_shortcut(app: &tauri::AppHandle, identifier: &str) -> Result<(), Str
         let persist: IPersistFile = link.cast().map_err(|e| format!("cast IPersistFile: {e}"))?;
         persist
             .Save(&HSTRING::from(lnk_path.as_os_str()), true)
-            .map_err(|e| format!("Save: {e}"))?;
+            .map_err(|e| format!("Save({lnk_path:?}): {e}"))?;
+    }
+
+    // 新快捷方式写入成功后才清理旧语言变体(失败时保留旧的兜底,至少一份可用);
+    // 清理失败(如被占用)只记日志,不影响本次注册
+    for stale in stale_display_names(app_name) {
+        let stale_path = dir.join(format!("{stale}.lnk"));
+        if let Err(e) = std::fs::remove_file(&stale_path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                eprintln!("清理旧快捷方式失败({e}): {}", stale_path.display());
+            }
+        }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stale_names_exclude_current_keep_other_locale() {
+        assert_eq!(stale_display_names("灵感便签"), vec!["Inspiration Notes"]);
+        assert_eq!(stale_display_names("Inspiration Notes"), vec!["灵感便签"]);
+    }
 }

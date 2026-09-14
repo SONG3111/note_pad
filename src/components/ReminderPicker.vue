@@ -72,9 +72,11 @@ function commit() {
   if (!dayKey.value) return;
   const [y, m, d] = dayKey.value.split("-").map(Number);
   let ts = new Date(y, m - 1, d, hour.value, minute.value).getTime();
-  // 今天 + 已过去的时刻(如刚过点的当前时间):钳到 1 分钟后,库里不留过去时间戳;
+  // 仅当所选分钟已整分钟过去(真正错过)才钳到 1 分钟后,库里不留过去时间戳;
+  // 当前分钟内的选择保留精确时刻(到点即触发):否则连续给多项设同一时刻时,
+  // 晚提交的一项会被静默 +60 秒,与其他项错开约一分钟;
   // 钳制结果回写面板,避免下拉框显示与已生效的提醒时间不一致
-  if (ts <= Date.now()) {
+  if (ts < new Date().setSeconds(0, 0)) {
     ts = Date.now() + 60_000;
     const clamped = new Date(ts);
     dayKey.value = dateKey(ts);

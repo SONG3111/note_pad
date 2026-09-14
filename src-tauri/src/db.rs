@@ -402,6 +402,29 @@ pub fn clear_due_reminder(conn: &Connection, id: &str, expected: i64) -> Result<
     Ok(n > 0)
 }
 
+/// 通知发送失败后回写提醒,下个周期重试:仅当 remind_at 仍为空(期间用户未改设新提醒)才恢复
+pub fn restore_reminder(conn: &Connection, id: &str, expected: i64) -> Result<bool, String> {
+    let n = conn
+        .execute(
+            "UPDATE todo_items SET remind_at = ?1 WHERE id = ?2 AND remind_at IS NULL",
+            params![expected, id],
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(n > 0)
+}
+
+/// 最近的未触发提醒时间(未完成、所属笔记未软删除);没有任何待触发提醒时返回 None。
+/// 调度线程据此计算精确的休眠截止时间,替代固定间隔轮询
+pub fn next_remind_at(conn: &Connection) -> Result<Option<i64>, rusqlite::Error> {
+    conn.query_row(
+        "SELECT MIN(ti.remind_at) FROM todo_items ti
+         JOIN notes n ON n.id = ti.note_id AND n.deleted_at IS NULL
+         WHERE ti.remind_at IS NOT NULL AND ti.checked = 0",
+        [],
+        |r| r.get(0),
+    )
+}
+
 /// 到期未完成的提醒(所属笔记未软删除)
 pub fn due_reminders(conn: &Connection, now: i64) -> Result<Vec<DueReminder>, rusqlite::Error> {
     let mut stmt = conn.prepare(
@@ -729,5 +752,45 @@ mod tests {
         set_reminder(&conn, &due.id, Some(100)).unwrap();
         delete_note(&conn, &note.note.id).unwrap();
         assert!(due_reminders(&conn, 1_000).unwrap().is_empty());
+    }
+
+    #[test]
+    fn next_remind_at_returns_earliest_pending_only() {
+        let conn = mem();
+        // 无任何提醒时为 None
+        assert_eq!(next_remind_at(&conn).unwrap(), None);
+
+        let note = create_note(&conn, &note_input("todo", None)).unwrap();
+        let later = add_item(&conn, &note.note.id, "晚").unwrap();
+        let earlier = add_item(&conn, &note.note.id, "早").unwrap();
+        let done = add_item(&conn, &note.note.id, "已完成").unwrap();
+        set_reminder(&conn, &later.id, Some(2_000)).unwrap();
+        assert_eq!(next_remind_at(&conn).unwrap(), Some(2_000));
+
+        set_reminder(&conn, &earlier.id, Some(1_000)).unwrap();
+        set_reminder(&conn, &done.id, Some(500)).unwrap();
+        update_item(&conn, &done.id, None, Some(true)).unwrap();
+        // 取最小值,已完成项的更早提醒不参与
+        assert_eq!(next_remind_at(&conn).unwrap(), Some(1_000));
+
+        // 软删除其所属笔记后不再计入
+        delete_note(&conn, &note.note.id).unwrap();
+        assert_eq!(next_remind_at(&conn).unwrap(), None);
+    }
+
+    #[test]
+    fn restore_reminder_only_fills_empty_slot() {
+        let conn = mem();
+        let n = create_note(&conn, &note_input("todo", None)).unwrap();
+        let item = add_item(&conn, &n.note.id, "x").unwrap();
+
+        // remind_at 为空时恢复成功
+        assert!(restore_reminder(&conn, &item.id, 1_234).unwrap());
+        assert_eq!(query_item(&conn, &item.id).unwrap().remind_at, Some(1_234));
+
+        // 已有值(用户改设了新提醒)时不覆盖
+        set_reminder(&conn, &item.id, Some(9_999)).unwrap();
+        assert!(!restore_reminder(&conn, &item.id, 1_234).unwrap());
+        assert_eq!(query_item(&conn, &item.id).unwrap().remind_at, Some(9_999));
     }
 }

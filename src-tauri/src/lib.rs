@@ -122,6 +122,11 @@ async fn set_app_locale(app: AppHandle, locale: String) -> CmdResult<()> {
     }
     #[cfg(desktop)]
     i18n::rebuild_tray(&app, loc).map_err(|e| e.to_string())?;
+    // 通知顶部的应用名(开始菜单快捷方式)跟随语言:后台线程重写,不阻塞命令返回
+    {
+        let handle = app.clone();
+        std::thread::spawn(move || crate::notify::sync_display_name(&handle));
+    }
     Ok(())
 }
 
@@ -193,6 +198,10 @@ async fn set_todo_reminder(
     remind_at: Option<i64>,
 ) -> CmdResult<TodoItem> {
     let item = with_conn(state.0.clone(), move |conn| db::set_reminder(conn, &id, remind_at)).await?;
+    // 唤醒调度线程重扫:全库仅此路径能创建未来提醒,否则近刻提醒要等当前休眠结束才被发现
+    if item.remind_at.is_some() {
+        crate::reminder::wake();
+    }
     let _ = app.emit("notes-changed", changed_payload(&item.note_id, window.label()));
     Ok(item)
 }

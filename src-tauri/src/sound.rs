@@ -22,7 +22,8 @@ fn chime_samples() -> Vec<f32> {
 }
 
 pub fn play_chime() -> Result<(), String> {
-    // stream 必须活到播放结束(句柄绑定到 _stream):在提醒线程上阻塞播完(约 0.9 秒,15 秒的扫描周期内无碍)
+    // stream 必须活到播放结束(句柄绑定到 _stream):由调用方在独立线程上阻塞播完(约 0.9 秒),
+    // 音频设备初始化在 Windows 上可能耗时数秒,不得占用提醒调度扫描线程
     let (_stream, handle) = OutputStream::try_default().map_err(|e| e.to_string())?;
     let sink = Sink::try_new(&handle).map_err(|e| e.to_string())?;
     sink.append(SamplesBuffer::new(1, SAMPLE_RATE, chime_samples()));
