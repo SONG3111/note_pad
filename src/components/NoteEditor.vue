@@ -80,8 +80,17 @@ watch(
 );
 
 function onItemBlur(e: Event, itemId: string) {
-  const text = (e.target as HTMLInputElement).value.trim();
-  if (text) emit("updateItemText", itemId, text);
+  const el = e.target as HTMLInputElement;
+  const text = el.value.trim();
+  const item = props.note.items.find((i) => i.id === itemId);
+  if (!item) return;
+  if (!text) {
+    // 空文本不落库(后端会拒绝),把输入框还原为现值,避免 UI 与数据失同步
+    el.value = item.text;
+    return;
+  }
+  // 内容未变不发写请求,失焦不应产生无谓的数据库写入
+  if (text !== item.text) emit("updateItemText", itemId, text);
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -95,7 +104,14 @@ onBeforeUnmount(() => {
 });
 
 function close() {
-  flushSave();
+  // 空笔记关闭即删除:跳过自动保存,避免 save 与 delete 两条 IPC 并发,
+  // delete 先提交时 update_note 落空报 NOTE_NOT_FOUND
+  if (isEmptyState()) {
+    dirty = false;
+    window.clearTimeout(saveTimer);
+  } else {
+    flushSave();
+  }
   emit("close", isEmptyState());
 }
 </script>

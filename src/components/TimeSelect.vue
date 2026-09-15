@@ -58,6 +58,8 @@ function step(delta: number) {
 
 <template>
   <div class="ts" role="group" :aria-label="props.ariaLabel">
+    <!-- esc 只放弃本输入框的编辑草稿;.stop 阻止它冒泡到 window 级监听,
+         避免放弃编辑时把整个编辑器/便签窗口一并关掉 -->
     <input
       ref="inputEl"
       class="ts-input"
@@ -76,7 +78,7 @@ function step(delta: number) {
       @keydown.enter.prevent="commitDraft"
       @keydown.up.prevent="step(1)"
       @keydown.down.prevent="step(-1)"
-      @keydown.esc="draft = null"
+      @keydown.esc.stop="draft = null"
     />
     <div class="ts-steps">
       <button type="button" class="ts-step" :aria-label="t('timeSelect.increase')" @click="step(1)">

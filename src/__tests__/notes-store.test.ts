@@ -286,3 +286,66 @@ describe("notes store - 全部完成庆祝触发", () => {
     expect(store.find("n1")?.updatedAt).toBe(999);
   });
 });
+
+describe("notes store - 并发与容错回归", () => {
+  it("refreshNote 按笔记串行:排队的补拉在前一次完成后才发出,后到数据最终生效", async () => {
+    const store = useNotesStore();
+    store.notes = [makeNote({ id: "n1", title: "旧标题" })];
+    let calls = 0;
+    let resolveFirst!: (v: NoteWithItems) => void;
+    invokeMock.mockImplementation(() => {
+      calls += 1;
+      if (calls === 1) return new Promise((r) => (resolveFirst = r));
+      return Promise.resolve(makeNote({ id: "n1", title: "第二次-最新" }));
+    });
+
+    const p1 = store.refreshNote("n1");
+    await Promise.resolve(); // 冲一次微任务,让第一次补拉真正发出 get_note(挂起中)
+    const p2 = store.refreshNote("n1");
+    // 串行保证:第一次的 get_note 未完成前,第二次不得提前发出(提前发出会乱序覆盖)
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+
+    resolveFirst(makeNote({ id: "n1", title: "第一次-过期" }));
+    await p1;
+    await p2;
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(store.find("n1")?.title).toBe("第二次-最新");
+  });
+
+  it("save 目标已被其他窗口删除:从列表移除且不外漏拒绝", async () => {
+    const store = useNotesStore();
+    store.notes = [makeNote({ id: "n1", title: "t" })];
+    invokeMock.mockRejectedValue("NOTE_NOT_FOUND");
+    await expect(store.save("n1", { title: "x" })).resolves.toBeUndefined();
+    expect(store.find("n1")).toBeUndefined();
+  });
+
+  it("save 瞬时失败保留本地数据,不外漏拒绝", async () => {
+    const store = useNotesStore();
+    store.notes = [makeNote({ id: "n1", title: "正在编辑" })];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    invokeMock.mockRejectedValue("DB_BUSY");
+    await expect(store.save("n1", { title: "x" })).resolves.toBeUndefined();
+    expect(store.find("n1")?.title).toBe("正在编辑");
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("togglePin 失败时回滚乐观翻转", async () => {
+    const store = useNotesStore();
+    store.notes = [makeNote({ id: "n1", pinned: false })];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    invokeMock.mockRejectedValue("DB_BUSY");
+    await expect(store.togglePin("n1")).resolves.toBeUndefined();
+    expect(store.find("n1")?.pinned).toBe(false);
+    warnSpy.mockRestore();
+  });
+
+  it("remove 遇 NOTE_NOT_FOUND(已在别处删除)仍移除本地视图且不抛出", async () => {
+    const store = useNotesStore();
+    store.notes = [makeNote({ id: "n1" })];
+    invokeMock.mockRejectedValue("NOTE_NOT_FOUND");
+    await expect(store.remove("n1")).resolves.toBeUndefined();
+    expect(store.find("n1")).toBeUndefined();
+  });
+});

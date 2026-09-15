@@ -81,18 +81,27 @@ export const useNotesStore = defineStore("notes", () => {
 
   /// 接收其他窗口的变更/本地待办项操作后的补拉:拉取最新数据合并;
   /// 仅在确认笔记已删除(NOTE_NOT_FOUND)时才从列表移除,
-  /// DB_BUSY 等瞬时错误保留本地数据,避免正在编辑的笔记凭空消失
-  async function refreshNote(id: string) {
-    try {
-      const updated = await invoke<NoteWithItems>("get_note", { id });
-      applyUpdate(updated);
-    } catch (e) {
-      if (String(e).includes("NOTE_NOT_FOUND")) {
-        notes.value = notes.value.filter((n) => n.id !== id);
-      } else {
-        console.warn(`refreshNote(${id}) 失败,保留本地数据:`, e);
+  /// DB_BUSY 等瞬时错误保留本地数据,避免正在编辑的笔记凭空消失。
+  /// 同一笔记的补拉按调用顺序串行执行:快速连续勾选多项时后发的 get_note
+  /// 可能先返回,乱序覆盖会让 UI 短暂回显旧勾选态
+  const refreshChains: Record<string, Promise<void>> = {};
+
+  function refreshNote(id: string): Promise<void> {
+    const run = async () => {
+      try {
+        const updated = await invoke<NoteWithItems>("get_note", { id });
+        applyUpdate(updated);
+      } catch (e) {
+        if (String(e).includes("NOTE_NOT_FOUND")) {
+          notes.value = notes.value.filter((n) => n.id !== id);
+        } else {
+          console.warn(`refreshNote(${id}) 失败,保留本地数据:`, e);
+        }
       }
-    }
+    };
+    const next = (refreshChains[id] ?? Promise.resolve()).then(run, run);
+    refreshChains[id] = next;
+    return next;
   }
 
   async function create(type: NoteType, color?: string) {
@@ -110,8 +119,18 @@ export const useNotesStore = defineStore("notes", () => {
     if (patch.content !== undefined) input.content = patch.content;
     if (patch.color !== undefined) input.color = patch.color;
     if (patch.pinned !== undefined) input.pinned = patch.pinned;
-    const updated = await invoke<NoteWithItems>("update_note", { id, input });
-    applyUpdate(updated);
+    try {
+      const updated = await invoke<NoteWithItems>("update_note", { id, input });
+      applyUpdate(updated);
+    } catch (e) {
+      // 编辑器里的自动保存是浮动调用,不能让拒绝外漏成未处理异常;
+      // 笔记已在别处删除则同步移除,瞬时错误保留本地数据等下次保存
+      if (String(e).includes("NOTE_NOT_FOUND")) {
+        notes.value = notes.value.filter((n) => n.id !== id);
+      } else {
+        console.warn(`save(${id}) 失败,保留本地数据:`, e);
+      }
+    }
   }
 
   function applyUpdate(updated: NoteWithItems) {
@@ -120,21 +139,35 @@ export const useNotesStore = defineStore("notes", () => {
   }
 
   async function remove(id: string) {
-    await invoke("delete_note", { id });
+    try {
+      await invoke("delete_note", { id });
+    } catch (e) {
+      // 已在别处删除视为成功(幂等),其余错误也先从列表移除本地视图但记录原因
+      if (!String(e).includes("NOTE_NOT_FOUND")) {
+        console.warn(`remove(${id}) 失败:`, e);
+      }
+    }
     notes.value = notes.value.filter((n) => n.id !== id);
   }
 
   async function togglePin(id: string) {
     const note = find(id);
     if (!note) return;
-    note.pinned = !note.pinned;
-    const updated = await invoke<NoteWithItems>("update_note", {
-      id,
-      input: { pinned: note.pinned },
-    });
-    // 置顶状态变化时重排:置顶的提前
-    applyUpdate(updated);
-    notes.value.sort((a, b) => Number(b.pinned) - Number(a.pinned));
+    const prev = note.pinned;
+    note.pinned = !prev;
+    try {
+      const updated = await invoke<NoteWithItems>("update_note", {
+        id,
+        input: { pinned: note.pinned },
+      });
+      // 置顶状态变化时重排:置顶的提前
+      applyUpdate(updated);
+      notes.value.sort((a, b) => Number(b.pinned) - Number(a.pinned));
+    } catch (e) {
+      // 乐观翻转失败时回滚,UI 不停留在与数据库不符的置顶态
+      note.pinned = prev;
+      console.warn(`togglePin(${id}) 失败:`, e);
+    }
   }
 
   // 待办项级操作后端只返回 TodoItem(touch_note 刷新的笔记 updated_at 不在其中),

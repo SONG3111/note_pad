@@ -42,6 +42,13 @@ pub fn spawn(app: AppHandle) {
         if let Err(e) = tick(&app) {
             eprintln!("提醒调度失败({e}),下个周期重试");
         }
+        // 必须先取唤醒锁再计算休眠截止:wake() 若落在"读库之后、进入等待之前"
+        // 会 notify 一个还不存在的等待者而丢失(丢失唤醒),新提醒最坏被拖满
+        // 当前周期(15 秒)。持锁计算后,wake 只能在读库前(截止已含新提醒)或
+        // wait 释放锁后(notify 命中等待者)发生。wake 的调用方从不持有 DB 锁,
+        // 这里的"唤醒锁 → DB 锁"顺序不与任何反序组合成环,无死锁风险。
+        let (lock, cvar) = wake_state();
+        let guard = lock.lock().unwrap();
         // 最近的待触发提醒时间作为休眠截止:锁/查询失败按无提醒处理,退回空闲周期
         let deadline = {
             let db = app.state::<Db>();
@@ -53,8 +60,6 @@ pub fn spawn(app: AppHandle) {
             .map(|ms| Duration::from_millis((ms - db::now_ms()).max(0) as u64))
             .unwrap_or(IDLE_TICK)
             .min(IDLE_TICK);
-        let (lock, cvar) = wake_state();
-        let guard = lock.lock().unwrap();
         let _ = cvar.wait_timeout(guard, wait);
     });
 }
@@ -131,13 +136,26 @@ fn tick(app: &AppHandle) -> Result<(), String> {
             if crate::notify::send(&notify_app, title, &body).is_err() {
                 if let Err(e) = notify_app.notification().builder().title(title).body(body).show() {
                     eprintln!("系统通知发送失败({e}),回写提醒待下个周期重试");
-                    let db = notify_app.state::<Db>();
-                    // 先绑定锁结果再 if let:临时 Guard 的存活期不能越过 db 本身
-                    let lock = db.0.lock();
-                    if let Ok(conn) = lock {
-                        if let Err(e) = db::restore_reminder(&conn, &r.item_id, r.remind_at) {
-                            eprintln!("回写提醒失败({e})");
+                    let restored = {
+                        let db = notify_app.state::<Db>();
+                        // 先绑定锁结果再 if let:临时 Guard 的存活期不能越过 db 本身
+                        let lock = db.0.lock();
+                        match lock {
+                            Ok(conn) => match db::restore_reminder(&conn, &r.item_id, r.remind_at) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    eprintln!("回写提醒失败({e})");
+                                    false
+                                }
+                            },
+                            Err(_) => false,
                         }
+                    };
+                    // 回写成功必须唤醒调度线程:它的休眠截止按回写前的库状态(提醒已清空)
+                    // 算好,不唤醒要睡满当前周期(最长 15 秒)才重试。
+                    // 且必须先释放 DB 锁再取唤醒锁:调度线程持唤醒锁时会来取 DB 锁,反序会死锁
+                    if restored {
+                        crate::reminder::wake();
                     }
                 }
             }

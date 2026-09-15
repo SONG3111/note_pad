@@ -31,6 +31,7 @@ const confirmDelete = ref(false);
 const missing = ref(false);
 const scrollAreaRef = ref<HTMLElement | null>(null);
 let unlistenChanged: UnlistenFn | null = null;
+let unlistenClose: UnlistenFn | null = null;
 
 onMounted(async () => {
   const loaded = await store.loadNote(noteId);
@@ -41,15 +42,27 @@ onMounted(async () => {
   applyLoaded(loaded);
 
   // 其他窗口修改了这条便签 → 同步到本窗口(本地有未保存修改时以本窗口为准);
-  // 本窗口发出的变更已本地应用,跳过回拉以减少 IPC 与数据库压力
+  // 本窗口发出的变更已本地应用,跳过回拉以减少 IPC 与数据库压力。
+  // dirty 之外还要挡 saving:flushSave 在 IPC 在途时就已把 dirty 置回 false,
+  // 若此时放行远端回拉,会把用户刚输入、尚未落库的内容覆盖回旧值
   unlistenChanged = await listen<{ id: string; source: string }>("notes-changed", async (e) => {
-    if (e.payload.id !== noteId || e.payload.source === label || !note.value || dirty) return;
+    if (e.payload.id !== noteId || e.payload.source === label || !note.value || dirty || saving)
+      return;
     const fresh = await store.loadNote(noteId);
     if (!fresh) {
       missing.value = true;
       return;
     }
     applyLoaded(fresh);
+  });
+
+  // 系统关闭路径(Alt+F4/任务栏关闭):注册 JS 监听后 Tauri 自动阻止原生关闭,
+  // 这里走与关闭按钮相同的"保存 → 清理空笔记"流程再 destroy 真正关窗,
+  // 否则 webview 直接销毁,防抖中的最后 600ms 输入来不及落库
+  unlistenClose = await appWindow.onCloseRequested(async (e) => {
+    e.preventDefault();
+    await closeWindowCore();
+    await appWindow.destroy();
   });
 });
 
@@ -68,6 +81,9 @@ function applyLoaded(loaded: NoteWithItems) {
 
 let saveTimer: number | undefined;
 let dirty = false;
+// 保存 IPC 在途标志:flushSave 已把 dirty 置回 false,但新值尚未落库,
+// 期间到来的跨窗口同步不能回拉覆盖(见上方 notes-changed 守卫)
+let saving = false;
 // 程序化加载(打开窗口/跨窗口同步)期间的赋值不算用户编辑:
 // 色值映射可能改写 color 而触发保存 watch, 用该标记屏蔽, 避免打开窗口就写库
 let applyingRemote = false;
@@ -82,6 +98,7 @@ watch([title, content, color], () => {
 async function flushSave() {
   if (!dirty || !note.value) return;
   dirty = false;
+  saving = true;
   const updated = await invoke<NoteWithItems | null>("update_note", {
     id: noteId,
     input: {
@@ -90,6 +107,7 @@ async function flushSave() {
       color: color.value ?? null,
     },
   }).catch(() => null);
+  saving = false;
   if (updated) items.value = updated.items;
 }
 
@@ -157,6 +175,20 @@ async function updateItemText(itemId: string, text: string) {
   } catch {}
 }
 
+// 待办项文本失焦:空文本不落库(后端拒绝),把输入框还原为现值,
+// 避免"看似删掉了文字、刷新后又回来"的 UI 与数据失同步;内容未变也不发写请求
+function onItemTextBlur(e: Event, itemId: string) {
+  const el = e.target as HTMLInputElement;
+  const text = el.value.trim();
+  const item = items.value.find((i) => i.id === itemId);
+  if (!item) return;
+  if (!text) {
+    el.value = item.text;
+    return;
+  }
+  if (text !== item.text) updateItemText(itemId, text);
+}
+
 async function removeItem(itemId: string) {
   try {
     await invoke("delete_todo_item", { id: itemId });
@@ -177,12 +209,14 @@ async function doDelete() {
   confirmDelete.value = false;
   try {
     await invoke("delete_note", { id: noteId });
-    appWindow.close();
   } catch {}
+  // destroy 直达:笔记已删,无需再走 CloseRequested 的保存流程
+  await appWindow.destroy();
 }
 
-async function closeWindow() {
-  // 必须 await:否则 close() 会在保存完成前销毁窗口,丢失最后 600ms 内的输入
+// 保存 + 空笔记清理,不含关窗动作本身:关闭按钮与系统关闭路径(Alt+F4)共用
+async function closeWindowCore() {
+  // 必须 await:否则关窗会在保存完成前销毁 webview,丢失最后 600ms 内的输入
   await flushSave();
   // 与主界面行为一致:全空的内容关闭即清理
   if (isEmptyState()) {
@@ -190,11 +224,18 @@ async function closeWindow() {
       await invoke("delete_note", { id: noteId });
     } catch {}
   }
-  appWindow.close();
+}
+
+async function closeWindow() {
+  await closeWindowCore();
+  // destroy 而非 close:close 会再触发一次 CloseRequested(被上面的监听拦截成
+  // 递归保存),destroy 直接销毁并仍会走 Rust 侧 Destroyed 清理
+  await appWindow.destroy();
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === "Escape") closeWindow();
+  // 删除确认框开着时 Escape 只取消对话框(ConfirmDialog 内已拦截传播),此处再加一道保险
+  if (e.key === "Escape" && !confirmDelete.value) closeWindow();
 }
 onMounted(() => window.addEventListener("keydown", onKeydown));
 onBeforeUnmount(() => {
@@ -202,6 +243,7 @@ onBeforeUnmount(() => {
   window.clearTimeout(saveTimer);
   flushSave();
   unlistenChanged?.();
+  unlistenClose?.();
 });
 
 const isTodo = computed(() => note.value?.type === "todo");
@@ -212,7 +254,7 @@ const progress = computed(() =>
 
 // 语言切换后同步窗口标题(任务栏/Alt+Tab 显示用)
 watch(appLocale, () => {
-  void appWindow.setTitle(t("app.name"));
+  appWindow.setTitle(t("app.name")).catch(() => {});
 });
 </script>
 
@@ -268,7 +310,7 @@ watch(appLocale, () => {
                 class="item-text"
                 :class="{ done: item.checked }"
                 :value="item.text"
-                @blur="(e) => updateItemText(item.id, (e.target as HTMLInputElement).value.trim())"
+                @blur="(e) => onItemTextBlur(e, item.id)"
               />
               <ReminderPicker
                 v-if="!item.checked"

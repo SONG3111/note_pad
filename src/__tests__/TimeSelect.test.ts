@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import TimeSelect from "../components/TimeSelect.vue";
 import i18n from "../i18n";
@@ -105,5 +105,18 @@ describe("TimeSelect", () => {
     await input.trigger("blur"); // 修复前:把旧草稿 9 提交回去
     expect(wrapper.emitted<[number]>("update:modelValue")).toHaveLength(1);
     expect((wrapper.find(".ts-input").element as HTMLInputElement).value).toBe("10");
+  });
+
+  // 回归:Escape 放弃编辑草稿时曾冒泡到 window 级监听,把编辑器/便签窗口一并关掉
+  it("Escape 只放弃本输入框草稿,不冒泡到 window 级监听", async () => {
+    const wrapper = mountSelect(9, 23);
+    const windowSpy = vi.fn();
+    window.addEventListener("keydown", windowSpy);
+    try {
+      await wrapper.find(".ts-input").trigger("keydown", { key: "Escape" });
+      expect(windowSpy).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("keydown", windowSpy);
+    }
   });
 });
