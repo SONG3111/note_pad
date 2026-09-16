@@ -348,6 +348,11 @@ pub fn run() {
                 let id = window.label().trim_start_matches("note-");
                 let _ = window.app_handle().emit("note-window-closed", id);
             }
+            // 提醒弹窗销毁:记录时刻供 open_reminder_popup 识别"关闭回声"
+            // (点铃铛引发的失焦自毁,其后的 click 不应重建弹窗)
+            tauri::WindowEvent::Destroyed if window.label().starts_with("reminder-pop-") => {
+                reminder_popup::record_closed(window.label());
+            }
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![

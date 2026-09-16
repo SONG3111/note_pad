@@ -40,9 +40,11 @@ onMounted(async () => {
   });
 });
 
-async function onSet(remindAt: number | null) {
+async function onSet(next: number | null) {
   try {
-    await invoke("set_todo_reminder", { id: itemId, remindAt });
+    const item = await invoke<TodoItem>("set_todo_reminder", { id: itemId, remindAt: next });
+    // 回写面板数据:清除按钮的显隐依赖 remindAt,不更新会一直不出现
+    remindAt.value = item.remindAt;
   } catch {
     // 项被删除或已被勾选(后端拒绝):不再可设置,关闭
     close();

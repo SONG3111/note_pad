@@ -126,6 +126,7 @@ fn tick(app: &AppHandle) -> Result<(), String> {
     // 线程内逐条串行保持顺序
     let notify_app = app.clone();
     std::thread::spawn(move || {
+        let mut delivered = 0usize;
         for r in &claimed {
             let body = match &r.note_title {
                 Some(t) => format!("{t} · {}", r.text),
@@ -151,19 +152,24 @@ fn tick(app: &AppHandle) -> Result<(), String> {
                             Err(_) => false,
                         }
                     };
-                    // 回写成功必须唤醒调度线程:它的休眠截止按回写前的库状态(提醒已清空)
-                    // 算好,不唤醒要睡满当前周期(最长 15 秒)才重试。
-                    // 且必须先释放 DB 锁再取唤醒锁:调度线程持唤醒锁时会来取 DB 锁,反序会死锁
-                    if restored {
-                        crate::reminder::wake();
+                    // 回写后不唤醒调度线程:通知路径持续故障时,唤醒-认领-再失败-再回写
+                    // 会形成无退避的忙循环(每轮还堆积一条通知线程)。本轮回写前调度线程
+                    // 已按"无提醒"算好空闲周期(15 秒),最迟一个周期后自然重试
+                    if !restored {
+                        eprintln!("回写提醒未生效(期间用户已改设新提醒),跳过重试");
                     }
+                } else {
+                    delivered += 1;
                 }
+            } else {
+                delivered += 1;
             }
         }
 
         // 一批提醒只播一声提示音,在本线程播放不占用调度扫描;
-        // 上一批还在播(或音频设备初始化中)时跳过,避免叠加多条音频流
-        if !CHIME_PLAYING.swap(true, Ordering::SeqCst) {
+        // 仅当至少一条真正送达才播:全部失败时静默,由 ≤15 秒的重试循环在
+        // 送达那一轮补播,避免通知故障期间每个周期空鸣一声
+        if delivered > 0 && !CHIME_PLAYING.swap(true, Ordering::SeqCst) {
             if let Err(e) = crate::sound::play_chime() {
                 eprintln!("提醒音效播放失败({e})");
             }

@@ -184,9 +184,9 @@ describe("ReminderPicker popup 模式(独立便签窗口)", () => {
   vi.mock("@tauri-apps/api/window", () => ({
     getCurrentWindow: () => ({
       label: "note-n1",
-      // 2x 缩放 + 窗口原点 (100,200):坐标换算可被精确断言
+      // 2x 缩放 + 内容区原点 (100,200):坐标换算可被精确断言
       scaleFactor: async () => 2,
-      outerPosition: async () => ({ x: 100, y: 200 }),
+      innerPosition: async () => ({ x: 100, y: 200 }),
       onMoved: async (h: () => void) => {
         shared.movedHandler = h;
         return () => {};
@@ -201,14 +201,17 @@ describe("ReminderPicker popup 模式(独立便签窗口)", () => {
     });
   }
 
+  const openCalls = () =>
+    shared.invokeMock.mock.calls.filter(([cmd]) => cmd === "open_reminder_popup").length;
+
   beforeEach(() => {
     shared.invokeMock.mockReset().mockResolvedValue(undefined);
     shared.movedHandler = null;
   });
 
-  it("点击铃铛不渲染本地浮层,而是按屏幕坐标请求后端建弹窗", async () => {
+  it("点击铃铛不渲染本地浮层,而是按内容区原点换算屏幕坐标请求后端建弹窗", async () => {
     const wrapper = mountPopupPicker();
-    // 按钮在窗口内容区 (left 20, width 22, bottom 32),物理坐标 = 原点 + 逻辑×2
+    // 按钮在窗口内容区 (left 20, width 22, bottom 32),物理坐标 = 内容区原点 + 逻辑×2
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
       left: 20,
       top: 10,
@@ -231,6 +234,18 @@ describe("ReminderPicker popup 模式(独立便签窗口)", () => {
     } finally {
       vi.restoreAllMocks();
     }
+  });
+
+  it("每次点击都请求后端建窗:开/关语义由后端按关闭回声判定,前端不自行拦截", async () => {
+    // 回归:弹窗开着时再点铃铛,按下瞬间弹窗已失焦自毁,前端无从得知它曾开着;
+    // 任何本地"开关记忆"都会与跨窗口销毁事件赛跑,判定必须放在后端
+    const wrapper = mountPopupPicker();
+    await wrapper.find(".rp-btn").trigger("click");
+    await vi.waitFor(() => expect(openCalls()).toBe(1));
+    await wrapper.find(".rp-btn").trigger("click");
+    await vi.waitFor(() => expect(openCalls()).toBe(2));
+    expect(shared.invokeMock).not.toHaveBeenCalledWith("close_reminder_popups");
+    wrapper.unmount();
   });
 
   it("挂载即监听父窗口移动,窗口被拖动时关闭所有提醒弹窗", async () => {

@@ -91,6 +91,20 @@ describe("ReminderPopupApp 选择与清除", () => {
     expect(shared.destroyMock).not.toHaveBeenCalled();
   });
 
+  it("设置成功后回写 remindAt,清除按钮即时出现(否则弹窗内无法清除提醒)", async () => {
+    shared.invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "get_todo_item") return Promise.resolve(makeItem(null));
+      return Promise.resolve(makeItem(123_456));
+    });
+    const wrapper = mountPopup();
+    await flushPromises();
+    expect(wrapper.find(".rp-clear").exists()).toBe(false);
+    await wrapper.find(".cal-day.today").trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".rp-clear").exists()).toBe(true);
+    expect(shared.destroyMock).not.toHaveBeenCalled();
+  });
+
   it("清除提醒:写空值后关窗", async () => {
     const wrapper = mountPopup();
     await flushPromises();

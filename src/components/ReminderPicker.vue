@@ -53,6 +53,8 @@ function placePanel(rect: DOMRect, panelH: number) {
 
 async function toggle() {
   if (props.mode === "popup") {
+    // 点击语义(开/关)由后端判定:按下铃铛会让弹窗失焦自毁,click 到达时弹窗已不在,
+    // 前端无从得知按下瞬间它是否开着;后端按"刚销毁即视为关闭回声"忽略本次建窗
     await openPopupWindow();
     return;
   }
@@ -77,10 +79,11 @@ async function openPopupWindow() {
   const rect = btn.getBoundingClientRect();
   try {
     const win = getCurrentWindow();
-    const [scale, outer] = await Promise.all([win.scaleFactor(), win.outerPosition()]);
-    // 无边框窗口内容区与外框重合;锚点 = 铃铛中心(水平)与下缘(垂直),物理像素
-    const anchorX = outer.x + Math.round((rect.left + rect.width / 2) * scale);
-    const anchorY = outer.y + Math.round(rect.bottom * scale);
+    const [scale, origin] = await Promise.all([win.scaleFactor(), win.innerPosition()]);
+    // rect 是内容区 CSS 坐标,锚点必须基于内容区原点换算:Windows 上可缩放的无边框
+    // 窗口,外框(outerPosition)可能含不可见缩放边距,innerPosition 才与 rect 同一坐标系
+    const anchorX = origin.x + Math.round((rect.left + rect.width / 2) * scale);
+    const anchorY = origin.y + Math.round(rect.bottom * scale);
     await invoke("open_reminder_popup", { itemId, anchorX, anchorY });
   } catch {
     // 建窗失败静默降级(不崩溃,用户重试即可)
