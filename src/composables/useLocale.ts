@@ -2,7 +2,7 @@
 // 每个窗口(主窗口/独立便签窗口)都会执行 initLocale,各自解析出一致的语言。
 import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { emit, listen } from "@tauri-apps/api/event";
+import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import i18n, { LOCALE_STORAGE_KEY, type AppLocale } from "../i18n";
 
 /** 当前语言的响应式引用,供日期格式化等非模板场景使用(模板里直接用 t) */
@@ -27,13 +27,26 @@ function applyLocale(loc: AppLocale) {
   document.title = i18n.global.t("app.name");
 }
 
+/** 跨窗口语言同步的注销句柄:initLocale 每窗口只执行一次,窗口销毁随进程释放 */
+let unlistenLocaleChanged: UnlistenFn | null = null;
+
+/** 注销跨窗口语言同步监听(生产里窗口销毁即释放,主要供测试/重复初始化场景) */
+export function disposeLocaleListener() {
+  unlistenLocaleChanged?.();
+  unlistenLocaleChanged = null;
+}
+
 /** 窗口挂载前调用:解析并应用语言,同时监听其他窗口的切换广播 */
 export function initLocale() {
-  applyLocale(resolveInitialLocale());
+  const loc = resolveInitialLocale();
+  applyLocale(loc);
+  // Rust 侧启动只按系统语言初始化,持久化语言须在这里同步过去:
+  // 否则系统语言与用户选择不一致时,重启后托盘菜单与待办提醒通知标题会用错语言
+  invoke("set_app_locale", { locale: loc }).catch(() => {});
   // 其他窗口切换了语言 → 本窗口实时跟随(不回写存储、不再广播,避免循环)
   void listen<AppLocale>("app-locale-changed", (e) => {
     if (e.payload !== appLocale.value) applyLocale(e.payload);
-  });
+  }).then((fn) => (unlistenLocaleChanged = fn));
 }
 
 /** 手动切换语言:更新界面 + 持久化 + 通知 Rust 重建托盘 + 广播到其他窗口 */

@@ -4,6 +4,8 @@ import { useI18n } from "vue-i18n";
 import { NOTE_COLORS, type NoteWithItems } from "../types";
 import { mapCardColor } from "../colors";
 import TodoCheckbox from "./TodoCheckbox.vue";
+import ReminderPicker from "./ReminderPicker.vue";
+import ReminderBadge from "./ReminderBadge.vue";
 
 const { t } = useI18n();
 
@@ -18,6 +20,7 @@ const emit = defineEmits<{
   toggleItem: [itemId: string, checked: boolean];
   updateItemText: [itemId: string, text: string];
   removeItem: [itemId: string];
+  setReminder: [itemId: string, remindAt: number | null];
 }>();
 
 const title = ref(props.note.title ?? "");
@@ -77,8 +80,17 @@ watch(
 );
 
 function onItemBlur(e: Event, itemId: string) {
-  const text = (e.target as HTMLInputElement).value.trim();
-  if (text) emit("updateItemText", itemId, text);
+  const el = e.target as HTMLInputElement;
+  const text = el.value.trim();
+  const item = props.note.items.find((i) => i.id === itemId);
+  if (!item) return;
+  if (!text) {
+    // 空文本不落库(后端会拒绝),把输入框还原为现值,避免 UI 与数据失同步
+    el.value = item.text;
+    return;
+  }
+  // 内容未变不发写请求,失焦不应产生无谓的数据库写入
+  if (text !== item.text) emit("updateItemText", itemId, text);
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -92,7 +104,14 @@ onBeforeUnmount(() => {
 });
 
 function close() {
-  flushSave();
+  // 空笔记关闭即删除:跳过自动保存,避免 save 与 delete 两条 IPC 并发,
+  // delete 先提交时 update_note 落空报 NOTE_NOT_FOUND
+  if (isEmptyState()) {
+    dirty = false;
+    window.clearTimeout(saveTimer);
+  } else {
+    flushSave();
+  }
   emit("close", isEmptyState());
 }
 </script>
@@ -138,12 +157,21 @@ function close() {
 
       <div v-else class="todo-editor">
         <div ref="todoListRef" class="todo-list">
-          <div v-for="item in note.items" :key="item.id" class="item-row">
-            <TodoCheckbox :checked="item.checked" @change="emit('toggleItem', item.id, !item.checked)" />
-            <input class="item-text" :class="{ done: item.checked }" :value="item.text" @blur="onItemBlur($event, item.id)" />
-            <button class="row-del" :title="t('editor.deleteItem')" @click="emit('removeItem', item.id)">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-            </button>
+          <div v-for="item in note.items" :key="item.id" class="item-block">
+            <div class="item-row">
+              <TodoCheckbox :checked="item.checked" @change="emit('toggleItem', item.id, !item.checked)" />
+              <input class="item-text" :class="{ done: item.checked }" :value="item.text" @blur="onItemBlur($event, item.id)" />
+              <ReminderPicker
+                v-if="!item.checked"
+                :remind-at="item.remindAt"
+                @set="(remindAt) => emit('setReminder', item.id, remindAt)"
+              />
+              <button class="row-del" :title="t('editor.deleteItem')" @click="emit('removeItem', item.id)">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <!-- 提醒时间放文字下方第二行(Things 3 式),不占行内横向空间 -->
+            <ReminderBadge v-if="!item.checked && item.remindAt" :remind-at="item.remindAt" />
           </div>
         </div>
         <input v-model="newItemText" class="new-item" :placeholder="t('editor.addItemPlaceholder')" @keydown.enter.prevent="addOnEnter" />
@@ -323,6 +351,9 @@ function close() {
 }
 .todo-list::-webkit-scrollbar {
   display: none;
+}
+.item-block {
+  min-width: 0;
 }
 .item-row {
   display: flex;

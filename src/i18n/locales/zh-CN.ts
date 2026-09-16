@@ -67,14 +67,29 @@ export default {
   datePicker: {
     filter: "按日期筛选",
     filterActive: "按 {date} 筛选中,点击选择其他日期",
-    prevMonth: "上个月",
-    nextMonth: "下个月",
     today: "今天",
     clearFilter: "清除筛选",
+  },
+  calendar: {
     weekDays: ["一", "二", "三", "四", "五", "六", "日"],
+    prevMonth: "上个月",
+    nextMonth: "下个月",
   },
   celebrate: {
     allDone: "全部完成!",
+  },
+  reminder: {
+    set: "设置提醒",
+    edit: "修改提醒",
+    clear: "清除提醒",
+    customTime: "自定义时间",
+    hour: "小时",
+    minute: "分钟",
+    badgeTitle: "提醒时间：{time}",
+  },
+  timeSelect: {
+    increase: "增大",
+    decrease: "减小",
   },
   errors: {
     DB_BUSY: "数据库忙",
@@ -83,5 +98,6 @@ export default {
     ITEM_NOT_FOUND: "待办不存在",
     CONTENT_EMPTY: "内容不能为空",
     NO_FIELDS_TO_UPDATE: "没有需要更新的字段",
+    ITEM_CHECKED: "待办已完成，无法设置提醒",
   },
 };

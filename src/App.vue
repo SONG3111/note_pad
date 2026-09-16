@@ -52,7 +52,7 @@ function hideToTray() {
 
 onMounted(async () => {
   // 无边框窗口的标题栏不可见,但任务栏/Alt+Tab 仍显示标题,跟随语言
-  void appWindow.setTitle(t("app.name"));
+  appWindow.setTitle(t("app.name")).catch(() => {});
   await store.load();
   // 全局快捷键:Ctrl+Alt+T 快速待办 / Ctrl+Alt+N 快速便签
   unlistenQuickAdd = await listen<"todo" | "note">("quick-add", (e) => {
@@ -137,7 +137,7 @@ const emptyHint = computed(() => {
 
 // 手动切换语言后同步窗口标题(任务栏/Alt+Tab 里的名字)
 watch(appLocale, () => {
-  void appWindow.setTitle(t("app.name"));
+  appWindow.setTitle(t("app.name")).catch(() => {});
 });
 
 function removeNote(id: string) {
@@ -245,6 +245,7 @@ function closeEditor(isEmpty?: boolean) {
               @toggle-item="(itemId, checked) => store.updateItem(note.id, itemId, { checked })"
               @update-item-text="(itemId, text) => store.updateItem(note.id, itemId, { text })"
               @remove-item="(itemId) => store.removeItem(note.id, itemId)"
+              @set-reminder="(itemId, remindAt) => store.setReminder(note.id, itemId, remindAt)"
             />
           </Teleport>
         </template>

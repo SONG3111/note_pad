@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { relativeTime, type NoteWithItems } from "../types";
+import { relativeTime, formatReminderTime, type NoteWithItems } from "../types";
 import { mapCardColor } from "../colors";
 import { appLocale } from "../composables/useLocale";
 import TodoCheckbox from "./TodoCheckbox.vue";
@@ -74,6 +74,7 @@ watch(allDone, (v, was) => {
     popTimer = window.setTimeout(() => (pop.value = false), 450);
   }
 });
+onBeforeUnmount(() => window.clearTimeout(popTimer));
 </script>
 
 <template>
@@ -111,6 +112,17 @@ watch(allDone, (v, was) => {
       <div v-for="item in visibleItems" :key="item.id" class="todo-row">
         <TodoCheckbox :checked="item.checked" @change="emit('toggleItem', item.id, !item.checked)" />
         <span class="todo-text" :class="{ done: item.checked }">{{ item.text }}</span>
+        <!-- 提醒角标:只读展示,设置与修改入口在编辑器里 -->
+        <span
+          v-if="!item.checked && item.remindAt"
+          class="todo-bell"
+          :title="t('reminder.badgeTitle', { time: formatReminderTime(item.remindAt, appLocale) })"
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+            <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+          </svg>
+        </span>
         <button class="row-del" :title="t('noteCard.deleteItem')" @click="emit('removeItem', item.id)">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
         </button>
@@ -335,6 +347,15 @@ watch(allDone, (v, was) => {
 .todo-row .done {
   text-decoration: line-through;
   color: var(--text-faint);
+}
+/* 提醒角标:小铃铛,悬停显示具体时间 */
+.todo-bell {
+  flex: none;
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+  padding-top: 2px;
+  align-self: flex-start;
 }
 .more-hint {
   font-family: var(--font-hand);

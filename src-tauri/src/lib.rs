@@ -3,6 +3,10 @@ mod db;
 mod i18n;
 #[cfg(desktop)]
 mod dock;
+mod reminder;
+mod reminder_popup;
+mod notify;
+mod sound;
 
 use std::sync::{Arc, Mutex};
 
@@ -10,11 +14,11 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use db::{Db, NoteWithItems, TodoItem};
 
-type CmdResult<T> = Result<T, String>;
+pub(crate) type CmdResult<T> = Result<T, String>;
 
 /// 在阻塞线程池执行数据库操作:主线程与异步运行时都不会被卡住。
 /// 锁被污染时返回友好错误而不是 panic。
-async fn with_conn<T, F>(db: Arc<Mutex<rusqlite::Connection>>, f: F) -> CmdResult<T>
+pub(crate) async fn with_conn<T, F>(db: Arc<Mutex<rusqlite::Connection>>, f: F) -> CmdResult<T>
 where
     T: Send + 'static,
     F: FnOnce(&rusqlite::Connection) -> CmdResult<T> + Send + 'static,
@@ -29,7 +33,7 @@ where
 }
 
 /// 变更事件负载:携带来源窗口标签,接收方可跳过自己发出的变更,避免无谓回拉
-fn changed_payload(id: &str, source: &str) -> serde_json::Value {
+pub(crate) fn changed_payload(id: &str, source: &str) -> serde_json::Value {
     serde_json::json!({ "id": id, "source": source })
 }
 
@@ -40,7 +44,17 @@ async fn list_notes(state: State<'_, Db>) -> CmdResult<Vec<NoteWithItems>> {
 
 #[tauri::command]
 async fn get_note(state: State<'_, Db>, id: String) -> CmdResult<NoteWithItems> {
-    with_conn(state.0.clone(), move |conn| db::get_note(conn, &id).map_err(|e| e.to_string())).await
+    with_conn(state.0.clone(), move |conn| {
+        db::get_note(conn, &id).map_err(|e| {
+            // 稳定的错误契约:前端依赖 NOTE_NOT_FOUND 区分"已删除"与瞬时 DB 错误
+            if matches!(e, rusqlite::Error::QueryReturnedNoRows) {
+                "NOTE_NOT_FOUND".to_string()
+            } else {
+                e.to_string()
+            }
+        })
+    })
+    .await
 }
 
 /// 把便签从主界面拖出为独立窗口:drag=true 表示来自拖拽手势(鼠标仍按住,可无缝续拖)
@@ -109,6 +123,11 @@ async fn set_app_locale(app: AppHandle, locale: String) -> CmdResult<()> {
     }
     #[cfg(desktop)]
     i18n::rebuild_tray(&app, loc).map_err(|e| e.to_string())?;
+    // 通知顶部的应用名(开始菜单快捷方式)跟随语言:后台线程重写,不阻塞命令返回
+    {
+        let handle = app.clone();
+        std::thread::spawn(move || crate::notify::sync_display_name(&handle));
+    }
     Ok(())
 }
 
@@ -170,6 +189,24 @@ async fn delete_todo_item(app: AppHandle, window: tauri::Window, state: State<'_
     Ok(())
 }
 
+/// 设置/清除待办项提醒(remindAt 为 null 表示清除);完成后由 update_todo_item 自动取消
+#[tauri::command]
+async fn set_todo_reminder(
+    app: AppHandle,
+    window: tauri::Window,
+    state: State<'_, Db>,
+    id: String,
+    remind_at: Option<i64>,
+) -> CmdResult<TodoItem> {
+    let item = with_conn(state.0.clone(), move |conn| db::set_reminder(conn, &id, remind_at)).await?;
+    // 唤醒调度线程重扫:全库仅此路径能创建未来提醒,否则近刻提醒要等当前休眠结束才被发现
+    if item.remind_at.is_some() {
+        crate::reminder::wake();
+    }
+    let _ = app.emit("notes-changed", changed_payload(&item.note_id, window.label()));
+    Ok(item)
+}
+
 #[cfg(desktop)]
 fn reveal_and_focus(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
@@ -229,11 +266,27 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let db_path = data_dir.join("notepad.db");
             let conn = db::init(&db_path).map_err(std::io::Error::other)?;
             app.manage(Db(Arc::new(Mutex::new(conn))));
+
+            // 应用语言:按系统语言初始化。必须先于 reminder::spawn:
+            // 调度线程首拍"启动即补发"就会用 i18n 状态,晚注册会让它 panic
+            #[cfg(desktop)]
+            let locale = i18n::AppLocale::from_system();
+            #[cfg(desktop)]
+            app.manage(i18n::AppState(std::sync::Mutex::new(locale)));
+
+            // 待办提醒调度:常驻后台线程扫描到期项并发系统通知
+            reminder::spawn(app.handle().clone());
+            // 通知身份(AUMID)预注册:后台线程执行,不阻塞启动
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || crate::notify::prewarm(&handle));
+            }
 
             #[cfg(desktop)]
             {
@@ -248,10 +301,6 @@ pub fn run() {
                         eprintln!("全局快捷键注册失败({e}),可能已有另一个实例在运行");
                     }
                 }
-
-                // 应用语言:按系统语言初始化,前端切换语言时经 set_app_locale 同步并重建托盘
-                let locale = i18n::AppLocale::from_system();
-                app.manage(i18n::AppState(std::sync::Mutex::new(locale)));
 
                 let show = MenuItem::with_id(app, "show", locale.tray_show(), true, None::<&str>)?;
                 let quit = MenuItem::with_id(app, "quit", locale.tray_quit(), true, None::<&str>)?;
@@ -293,13 +342,11 @@ pub fn run() {
                 let _ = window.hide();
             }
             // 独立窗口销毁:注销停靠管理并通知主界面恢复显示该便签
-            tauri::WindowEvent::Destroyed => {
-                if window.label().starts_with("note-") {
-                    #[cfg(desktop)]
-                    dock::unregister(window.label());
-                    let id = window.label().trim_start_matches("note-");
-                    let _ = window.app_handle().emit("note-window-closed", id);
-                }
+            tauri::WindowEvent::Destroyed if window.label().starts_with("note-") => {
+                #[cfg(desktop)]
+                dock::unregister(window.label());
+                let id = window.label().trim_start_matches("note-");
+                let _ = window.app_handle().emit("note-window-closed", id);
             }
             _ => {}
         })
@@ -312,9 +359,13 @@ pub fn run() {
             add_todo_item,
             update_todo_item,
             delete_todo_item,
+            set_todo_reminder,
             detach_note_window,
             set_window_on_top,
-            set_app_locale
+            set_app_locale,
+            reminder_popup::get_todo_item,
+            reminder_popup::open_reminder_popup,
+            reminder_popup::close_reminder_popups
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

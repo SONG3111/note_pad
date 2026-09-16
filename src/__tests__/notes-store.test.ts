@@ -36,6 +36,15 @@ beforeEach(() => {
   seq = 0;
 });
 
+// 按命令分流 mock:待办项级操作现在会追加一次 get_note 补拉笔记 updated_at
+function mockInvoke(handlers: Record<string, (args?: Record<string, unknown>) => unknown>) {
+  invokeMock.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
+    const handler = handlers[cmd];
+    if (!handler) return Promise.reject(new Error(`unexpected invoke: ${cmd}`));
+    return Promise.resolve(handler(args));
+  });
+}
+
 describe("notes store - visible 过滤链", () => {
   it("viewFilter 按类型过滤(all/todo/note)", () => {
     const store = useNotesStore();
@@ -88,7 +97,7 @@ describe("notes store - visible 过滤链", () => {
       makeNote({
         id: "n3",
         type: "todo",
-        items: [{ id: "i1", noteId: "n3", text: "买牛奶", checked: false, sortOrder: 0, updatedAt: 0 }],
+        items: [{ id: "i1", noteId: "n3", text: "买牛奶", checked: false, sortOrder: 0, updatedAt: 0, remindAt: null }],
       }),
       makeNote({ id: "n4", title: "无关内容" }),
     ];
@@ -102,19 +111,19 @@ describe("notes store - visible 过滤链", () => {
     expect(store.visible).toHaveLength(4);
   });
 
-  it("排序:置顶优先,同层级按 updatedAt 倒序,全部视图下待办排在便签前", () => {
+  it("排序:置顶优先,同层级按 createdAt 倒序,全部视图下待办排在便签前", () => {
     const store = useNotesStore();
     const t = (day: number) => new Date(2026, 7, day, 10, 0).getTime();
     store.notes = [
-      makeNote({ id: "plain-note", type: "note", updatedAt: t(28) }),
-      makeNote({ id: "todo-old", type: "todo", updatedAt: t(10) }),
-      makeNote({ id: "pinned-old", type: "note", pinned: true, updatedAt: t(5) }),
+      makeNote({ id: "plain-note", type: "note", createdAt: t(28) }),
+      makeNote({ id: "todo-old", type: "todo", createdAt: t(10), updatedAt: t(29) }),
+      makeNote({ id: "pinned-old", type: "note", pinned: true, createdAt: t(5) }),
     ];
     store.viewFilter = "all";
     expect(store.visible.map((n) => n.id)).toEqual([
       "pinned-old", // 置顶永远最前
       "todo-old", // 全部视图下待办优先于便签
-      "plain-note",
+      "plain-note", // createdAt 最新;todo-old 的 updatedAt 更新也不改变顺序
     ]);
   });
 });
@@ -128,22 +137,38 @@ describe("notes store - 数据操作走 invoke", () => {
     expect(store.find("n1")?.title).toBe("新标题");
   });
 
-  it("refreshNote 失败(已删除)时把记录从列表移除", async () => {
+  it("refreshNote 失败(NOTE_NOT_FOUND)时把记录从列表移除", async () => {
     const store = useNotesStore();
     store.notes = [makeNote({ id: "n1" })];
-    invokeMock.mockRejectedValue(new Error("gone"));
+    invokeMock.mockRejectedValue("NOTE_NOT_FOUND");
     await store.refreshNote("n1");
     expect(store.find("n1")).toBeUndefined();
   });
 
-  it("addItem 调用 invoke 并把新待办项追加到对应笔记", async () => {
+  it("refreshNote 瞬时失败(DB_BUSY)时保留本地数据不误删", async () => {
+    const store = useNotesStore();
+    store.notes = [makeNote({ id: "n1", title: "正在编辑" })];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    invokeMock.mockRejectedValue("DB_BUSY");
+    await store.refreshNote("n1");
+    // 瞬时错误:笔记仍在,数据未被破坏
+    expect(store.find("n1")?.title).toBe("正在编辑");
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("addItem 调用 invoke 追加待办项,并补拉刷新笔记 updatedAt", async () => {
     const store = useNotesStore();
     store.notes = [makeNote({ id: "n1", type: "todo" })];
-    const newItem = { id: "i9", noteId: "n1", text: "新事项", checked: false, sortOrder: 0, updatedAt: 1 };
-    invokeMock.mockResolvedValue(newItem);
+    const newItem = { id: "i9", noteId: "n1", text: "新事项", checked: false, sortOrder: 0, updatedAt: 1, remindAt: null };
+    mockInvoke({
+      add_todo_item: () => newItem,
+      get_note: () => makeNote({ id: "n1", type: "todo", updatedAt: 999, items: [newItem] }),
+    });
     await store.addItem("n1", "新事项");
     expect(invokeMock).toHaveBeenCalledWith("add_todo_item", { noteId: "n1", text: "新事项" });
     expect(store.find("n1")?.items).toHaveLength(1);
+    expect(store.find("n1")?.updatedAt).toBe(999);
   });
 
   it("removeItem 调用 invoke 并从笔记中移除", async () => {
@@ -152,12 +177,40 @@ describe("notes store - 数据操作走 invoke", () => {
       makeNote({
         id: "n1",
         type: "todo",
-        items: [{ id: "i1", noteId: "n1", text: "a", checked: false, sortOrder: 0, updatedAt: 0 }],
+        items: [{ id: "i1", noteId: "n1", text: "a", checked: false, sortOrder: 0, updatedAt: 0, remindAt: null }],
       }),
     ];
-    invokeMock.mockResolvedValue(null);
+    mockInvoke({
+      delete_todo_item: () => null,
+      get_note: () => makeNote({ id: "n1", type: "todo" }),
+    });
     await store.removeItem("n1", "i1");
     expect(store.find("n1")?.items).toHaveLength(0);
+  });
+
+  it("setReminder 调用 set_todo_reminder 并替换对应项数据", async () => {
+    const store = useNotesStore();
+    store.notes = [
+      makeNote({
+        id: "n1",
+        type: "todo",
+        items: [{ id: "i1", noteId: "n1", text: "a", checked: false, sortOrder: 0, updatedAt: 0, remindAt: null }],
+      }),
+    ];
+    mockInvoke({
+      set_todo_reminder: () => ({ id: "i1", noteId: "n1", text: "a", checked: false, sortOrder: 0, updatedAt: 1, remindAt: 123 }),
+      get_note: () =>
+        makeNote({
+          id: "n1",
+          type: "todo",
+          updatedAt: 999,
+          items: [{ id: "i1", noteId: "n1", text: "a", checked: false, sortOrder: 0, updatedAt: 1, remindAt: 123 }],
+        }),
+    });
+    await store.setReminder("n1", "i1", 123);
+    expect(invokeMock).toHaveBeenCalledWith("set_todo_reminder", { id: "i1", remindAt: 123 });
+    expect(store.find("n1")?.items[0].remindAt).toBe(123);
+    expect(store.find("n1")?.updatedAt).toBe(999);
   });
 });
 
@@ -173,6 +226,7 @@ describe("notes store - 全部完成庆祝触发", () => {
         checked: i.checked,
         sortOrder: idx,
         updatedAt: 0,
+        remindAt: null,
       })),
     });
   }
@@ -180,7 +234,10 @@ describe("notes store - 全部完成庆祝触发", () => {
   it("勾选补齐最后一项(≥2 项)时触发 celebrateAllDone", async () => {
     const store = useNotesStore();
     store.notes = [todoNote([{ id: "i1", checked: true }, { id: "i2", checked: false }])];
-    invokeMock.mockResolvedValue({ id: "i2", noteId: "n1", text: "t1", checked: true, sortOrder: 1, updatedAt: 9 });
+    mockInvoke({
+      update_todo_item: () => ({ id: "i2", noteId: "n1", text: "t1", checked: true, sortOrder: 1, updatedAt: 9 }),
+      get_note: () => makeNote({ id: "n1", type: "todo", updatedAt: 999 }),
+    });
     await store.updateItem("n1", "i2", { checked: true });
     expect(celebrateMock).toHaveBeenCalledTimes(1);
   });
@@ -188,7 +245,10 @@ describe("notes store - 全部完成庆祝触发", () => {
   it("仅剩 1 项待办全部完成时不触发(阈值保护)", async () => {
     const store = useNotesStore();
     store.notes = [todoNote([{ id: "i1", checked: false }])];
-    invokeMock.mockResolvedValue({ id: "i1", noteId: "n1", text: "t0", checked: true, sortOrder: 0, updatedAt: 9 });
+    mockInvoke({
+      update_todo_item: () => ({ id: "i1", noteId: "n1", text: "t0", checked: true, sortOrder: 0, updatedAt: 9 }),
+      get_note: () => makeNote({ id: "n1", type: "todo", updatedAt: 999 }),
+    });
     await store.updateItem("n1", "i1", { checked: true });
     expect(celebrateMock).not.toHaveBeenCalled();
   });
@@ -196,7 +256,10 @@ describe("notes store - 全部完成庆祝触发", () => {
   it("取消勾选不触发", async () => {
     const store = useNotesStore();
     store.notes = [todoNote([{ id: "i1", checked: true }, { id: "i2", checked: true }])];
-    invokeMock.mockResolvedValue({ id: "i2", noteId: "n1", text: "t1", checked: false, sortOrder: 1, updatedAt: 9 });
+    mockInvoke({
+      update_todo_item: () => ({ id: "i2", noteId: "n1", text: "t1", checked: false, sortOrder: 1, updatedAt: 9 }),
+      get_note: () => makeNote({ id: "n1", type: "todo", updatedAt: 999 }),
+    });
     await store.updateItem("n1", "i2", { checked: false });
     expect(celebrateMock).not.toHaveBeenCalled();
   });
@@ -204,8 +267,85 @@ describe("notes store - 全部完成庆祝触发", () => {
   it("还有未完成项时不触发", async () => {
     const store = useNotesStore();
     store.notes = [todoNote([{ id: "i1", checked: false }, { id: "i2", checked: false }])];
-    invokeMock.mockResolvedValue({ id: "i1", noteId: "n1", text: "t0", checked: true, sortOrder: 0, updatedAt: 9 });
+    mockInvoke({
+      update_todo_item: () => ({ id: "i1", noteId: "n1", text: "t0", checked: true, sortOrder: 0, updatedAt: 9 }),
+      get_note: () => makeNote({ id: "n1", type: "todo", updatedAt: 999 }),
+    });
     await store.updateItem("n1", "i1", { checked: true });
     expect(celebrateMock).not.toHaveBeenCalled();
+  });
+
+  it("勾选待办后补拉笔记,updatedAt 刷新(卡片时间显示为刚刚)", async () => {
+    const store = useNotesStore();
+    store.notes = [todoNote([{ id: "i1", checked: false }])];
+    mockInvoke({
+      update_todo_item: () => ({ id: "i1", noteId: "n1", text: "t0", checked: true, sortOrder: 0, updatedAt: 9 }),
+      get_note: () => makeNote({ id: "n1", type: "todo", updatedAt: 999 }),
+    });
+    await store.updateItem("n1", "i1", { checked: true });
+    expect(store.find("n1")?.updatedAt).toBe(999);
+  });
+});
+
+describe("notes store - 并发与容错回归", () => {
+  it("refreshNote 按笔记串行:排队的补拉在前一次完成后才发出,后到数据最终生效", async () => {
+    const store = useNotesStore();
+    store.notes = [makeNote({ id: "n1", title: "旧标题" })];
+    let calls = 0;
+    let resolveFirst!: (v: NoteWithItems) => void;
+    invokeMock.mockImplementation(() => {
+      calls += 1;
+      if (calls === 1) return new Promise((r) => (resolveFirst = r));
+      return Promise.resolve(makeNote({ id: "n1", title: "第二次-最新" }));
+    });
+
+    const p1 = store.refreshNote("n1");
+    await Promise.resolve(); // 冲一次微任务,让第一次补拉真正发出 get_note(挂起中)
+    const p2 = store.refreshNote("n1");
+    // 串行保证:第一次的 get_note 未完成前,第二次不得提前发出(提前发出会乱序覆盖)
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+
+    resolveFirst(makeNote({ id: "n1", title: "第一次-过期" }));
+    await p1;
+    await p2;
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(store.find("n1")?.title).toBe("第二次-最新");
+  });
+
+  it("save 目标已被其他窗口删除:从列表移除且不外漏拒绝", async () => {
+    const store = useNotesStore();
+    store.notes = [makeNote({ id: "n1", title: "t" })];
+    invokeMock.mockRejectedValue("NOTE_NOT_FOUND");
+    await expect(store.save("n1", { title: "x" })).resolves.toBeUndefined();
+    expect(store.find("n1")).toBeUndefined();
+  });
+
+  it("save 瞬时失败保留本地数据,不外漏拒绝", async () => {
+    const store = useNotesStore();
+    store.notes = [makeNote({ id: "n1", title: "正在编辑" })];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    invokeMock.mockRejectedValue("DB_BUSY");
+    await expect(store.save("n1", { title: "x" })).resolves.toBeUndefined();
+    expect(store.find("n1")?.title).toBe("正在编辑");
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("togglePin 失败时回滚乐观翻转", async () => {
+    const store = useNotesStore();
+    store.notes = [makeNote({ id: "n1", pinned: false })];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    invokeMock.mockRejectedValue("DB_BUSY");
+    await expect(store.togglePin("n1")).resolves.toBeUndefined();
+    expect(store.find("n1")?.pinned).toBe(false);
+    warnSpy.mockRestore();
+  });
+
+  it("remove 遇 NOTE_NOT_FOUND(已在别处删除)仍移除本地视图且不抛出", async () => {
+    const store = useNotesStore();
+    store.notes = [makeNote({ id: "n1" })];
+    invokeMock.mockRejectedValue("NOTE_NOT_FOUND");
+    await expect(store.remove("n1")).resolves.toBeUndefined();
+    expect(store.find("n1")).toBeUndefined();
   });
 });

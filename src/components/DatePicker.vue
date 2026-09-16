@@ -1,21 +1,19 @@
 <script setup lang="ts">
-// 主界面工具栏的日历筛选:月网格选择日期,按记录创建日期过滤列表。
-// 自研轻量实现(无第三方依赖),视觉跟随应用主题变量。
+// 主界面工具栏的日历筛选:月历选择日期,按记录创建日期过滤列表。
+// 网格本体是共享组件 CalendarGrid(与提醒选择器共用),这里只管开关与底部操作
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { useI18n } from "vue-i18n";
 import { useNotesStore } from "../stores/notes";
 import { dateKey } from "../types";
+import CalendarGrid from "./CalendarGrid.vue";
 
-const { t, tm, locale } = useI18n();
+const { t } = useI18n();
 const store = useNotesStore();
 const { dateFilter } = storeToRefs(store);
 
 const open = ref(false);
 const rootRef = ref<HTMLElement | null>(null);
-// 当前视图的年月(日历面板独立导航,不直接跟随选中值)
-const viewYear = ref(new Date().getFullYear());
-const viewMonth = ref(new Date().getMonth()); // 0-11
 
 // 有记录的日期集合(本地时区键),用于格子上打点
 const notedDates = computed(() => {
@@ -24,58 +22,9 @@ const notedDates = computed(() => {
   return set;
 });
 
-const todayKey = dateKey(Date.now());
-
-// 6x7 网格:从本周周一起始,覆盖当月完整的前后补位
-const weekLabels = computed(() => {
-  const msgs = tm("datePicker.weekDays");
-  return Array.isArray(msgs) ? msgs.map((m) => String(m)) : [];
-});
-const cells = computed(() => {
-  const first = new Date(viewYear.value, viewMonth.value, 1);
-  // getDay(): 0=周日..6=周六 → 换算成周一起始的偏移
-  const offset = (first.getDay() + 6) % 7;
-  const start = new Date(viewYear.value, viewMonth.value, 1 - offset);
-  const out: Array<{ key: string; day: number; inMonth: boolean }> = [];
-  for (let i = 0; i < 42; i++) {
-    const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
-    out.push({
-      key: dateKey(d.getTime()),
-      day: d.getDate(),
-      inMonth: d.getMonth() === viewMonth.value,
-    });
-  }
-  return out;
-});
-
-// 月标题用 Intl 按当前语言格式化:中文"2026年9月",英文"September 2026"
-const monthLabel = computed(() =>
-  new Intl.DateTimeFormat(locale.value, { year: "numeric", month: "long" }).format(
-    new Date(viewYear.value, viewMonth.value, 1),
-  ),
-);
-
-function prevMonth() {
-  const m = new Date(viewYear.value, viewMonth.value - 1, 1);
-  viewYear.value = m.getFullYear();
-  viewMonth.value = m.getMonth();
-}
-function nextMonth() {
-  const m = new Date(viewYear.value, viewMonth.value + 1, 1);
-  viewYear.value = m.getFullYear();
-  viewMonth.value = m.getMonth();
-}
-
-function pick(key: string) {
-  store.setDateFilter(key);
-  open.value = false;
-}
-
+// 即时求值而非 setup 时缓存:组件随主窗口长驻,跨午夜后缓存的日期键会过期
 function pickToday() {
-  const now = new Date();
-  viewYear.value = now.getFullYear();
-  viewMonth.value = now.getMonth();
-  store.setDateFilter(todayKey);
+  store.setDateFilter(dateKey(Date.now()));
   open.value = false;
 }
 
@@ -86,13 +35,7 @@ function clear() {
 
 function toggleOpen() {
   open.value = !open.value;
-  // 打开时视图落在选中月份(无选中则当前月),避免用户上翻后失联
-  if (open.value) {
-    const src = dateFilter.value ? dateFilter.value.split("-").map(Number) : null;
-    const now = new Date();
-    viewYear.value = src ? src[0] : now.getFullYear();
-    viewMonth.value = src ? src[1] - 1 : now.getMonth();
-  }
+  // 面板为 v-if 挂载,CalendarGrid 每次 open 都以 initialKey 重新初始化视图月份
 }
 
 // 点击面板外关闭(录音按钮等场景不会冲突,这里只管自己)
@@ -122,33 +65,13 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocPointerDo
     <!-- 面板锚定在按钮右侧、向左展开:right:0 对齐搜索框右缘,
          400px 窗口内完整可见(旧版 left:0 向右展开会被右缘裁掉) -->
     <div v-if="open" class="dp-panel">
-      <div class="dp-head">
-        <button class="dp-nav" :title="t('datePicker.prevMonth')" @click="prevMonth">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
-        </button>
-        <span class="dp-month">{{ monthLabel }}</span>
-        <button class="dp-nav" :title="t('datePicker.nextMonth')" @click="nextMonth">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6" /></svg>
-        </button>
-      </div>
-
-      <div class="dp-grid">
-        <span v-for="w in weekLabels" :key="w" class="dp-week">{{ w }}</span>
-        <button
-          v-for="c in cells"
-          :key="c.key"
-          class="dp-day"
-          :class="{
-            out: !c.inMonth,
-            today: c.key === todayKey,
-            selected: c.key === dateFilter,
-          }"
-          @click="pick(c.key)"
-        >
-          {{ c.day }}
-          <i v-if="notedDates.has(c.key)" class="dp-dot" />
-        </button>
-      </div>
+      <!-- 选完日期即收起面板(原有交互);视图月份由 initialKey 定位 -->
+      <CalendarGrid
+        v-model="dateFilter"
+        :initial-key="dateFilter"
+        :marked-dates="notedDates"
+        @update:model-value="open = false"
+      />
 
       <div class="dp-foot">
         <button class="dp-act" data-testid="dp-today" @click="pickToday">{{ t("datePicker.today") }}</button>
@@ -231,96 +154,6 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocPointerDo
       opacity: 0;
     }
   }
-}
-
-.dp-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-.dp-month {
-  font-family: var(--font-hand);
-  font-size: 14px;
-  font-weight: 400;
-  letter-spacing: 0.5px;
-  color: var(--text-strong);
-}
-.dp-nav {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border: none;
-  border-radius: var(--radius-s);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition:
-    background-color 0.12s var(--ease-out),
-    transform 0.12s var(--ease-out);
-}
-.dp-nav svg {
-  width: 13px;
-  height: 13px;
-}
-.dp-nav:hover {
-  background: var(--surface-2);
-}
-.dp-nav:active {
-  transform: scale(0.94);
-}
-
-.dp-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
-}
-.dp-week {
-  text-align: center;
-  font-size: 11px;
-  color: var(--text-faint);
-  padding: 3px 0;
-}
-.dp-day {
-  position: relative;
-  border: none;
-  background: transparent;
-  height: 30px;
-  border-radius: var(--radius-s);
-  font-size: 12.5px;
-  color: var(--text);
-  cursor: pointer;
-  transition: background-color 0.12s var(--ease-out);
-}
-.dp-day:hover {
-  background: var(--surface-2);
-}
-.dp-day.out {
-  color: var(--text-faint);
-  opacity: 0.55;
-}
-.dp-day.today {
-  box-shadow: inset 0 0 0 1px var(--border-strong);
-}
-.dp-day.selected {
-  background: var(--accent);
-  color: #fff;
-  font-weight: 600;
-}
-/* 有记录的日期:底部小圆点提示"这天有内容" */
-.dp-dot {
-  position: absolute;
-  left: 50%;
-  bottom: 3px;
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--accent);
-  transform: translateX(-50%);
-}
-.dp-day.selected .dp-dot {
-  background: #fff;
 }
 
 .dp-foot {

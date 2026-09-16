@@ -2,7 +2,7 @@
 import { onBeforeUnmount, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 
-defineProps<{
+const props = defineProps<{
   open: boolean;
   title?: string;
   message: string;
@@ -15,8 +15,13 @@ const emit = defineEmits<{ confirm: []; cancel: [] }>();
 // 文案由父组件用 t() 传入;此处的 i18n 兜底保证漏传时也不会出现硬编码语言
 const { t } = useI18n();
 
+// 关闭状态下不响应(本组件常驻挂载,监听器一直在);打开时 Escape 只取消本对话框:
+// stopImmediatePropagation 阻止同一事件触发后注册的其他 Escape 处理器
+// (便签窗口的关窗、编辑器的关闭——子组件先挂载,本监听器注册在它们之前)
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === "Escape") emit("cancel");
+  if (!props.open || e.key !== "Escape") return;
+  e.stopImmediatePropagation();
+  emit("cancel");
 }
 onMounted(() => window.addEventListener("keydown", onKeydown));
 onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
