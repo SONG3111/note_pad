@@ -312,8 +312,12 @@ watch(appLocale, () => {
                 :value="item.text"
                 @blur="(e) => onItemTextBlur(e, item.id)"
               />
+              <!-- popup 模式:便签窗口装不下日历面板,点击铃铛在按钮旁弹出
+                   可超出窗口边界的独立小窗(见 ReminderPopupApp) -->
               <ReminderPicker
                 v-if="!item.checked"
+                mode="popup"
+                :item-id="item.id"
                 :remind-at="item.remindAt"
                 @set="(remindAt) => setReminder(item.id, remindAt)"
               />

@@ -1,35 +1,40 @@
 <script setup lang="ts">
-// 待办提醒选择器:铃铛按钮 + 弹出小面板(自绘月历 + 时/分纸片选择器)。
+// 待办提醒选择器的铃铛入口,两种模式:
+// - panel(默认,主窗口):点击在铃铛旁弹出窗内浮层(fixed 定位,宿主 ReminderPanel);
+// - popup(独立便签窗口):便签窗口只有 360×380 且 Web 画不出窗口边界,浮层必然被
+//   裁剪;改为把按钮的屏幕坐标发给后端,弹出一个可超出便签窗口的无边框小窗。
 // 刻意不用原生日期/时间控件:其显示格式与弹层跟随 WebView 系统语言
-// (Chromium 不支持 lang 属性,issues.chromium.org/40326106),中文系统开英文界面会漏出中文。
-// 自绘部分全部经 vue-i18n/Intl 按应用语言渲染。选择即生效,面板外点击关闭。
+// (Chromium 不支持 lang 属性,issues.chromium.org/40326106)。
 import { nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { dateKey } from "../types";
-import CalendarGrid from "./CalendarGrid.vue";
-import TimeSelect from "./TimeSelect.vue";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import ReminderPanel from "./ReminderPanel.vue";
 
-const props = defineProps<{ remindAt: number | null; disabled?: boolean }>();
+const props = withDefaults(
+  defineProps<{
+    remindAt: number | null;
+    disabled?: boolean;
+    /** panel = 窗内浮层(主窗口);popup = 独立弹窗小窗(便签窗口) */
+    mode?: "panel" | "popup";
+    /** popup 模式必填:目标待办项 id(弹窗按它定位与回写) */
+    itemId?: string;
+  }>(),
+  { mode: "panel" },
+);
 
 const emit = defineEmits<{
   set: [remindAt: number | null];
 }>();
 
 const { t } = useI18n();
-const rootRef = ref<HTMLElement | null>(null);
 const btnRef = ref<HTMLElement | null>(null);
 const panelRef = ref<HTMLElement | null>(null);
+const rootRef = ref<HTMLElement | null>(null);
 const open = ref(false);
-// 打开瞬间快照的定位与日历视图,面板存活期间保持稳定
+// 打开瞬间快照的定位,浮层存活期间保持稳定
 const panelStyle = ref<{ top: string; right: string }>({ top: "0px", right: "0px" });
-const initialKey = ref<string | null>(null);
-// 早于今天的日子禁选(提醒必须指向未来)
-const minKey = ref<string | null>(null);
-
-// 面板内的选择状态:打开瞬间从当前提醒(未设则现在 +1 小时)初始化
-const dayKey = ref<string | null>(null);
-const hour = ref(0);
-const minute = ref(0);
 
 // 与铃铛的间距,上下方向一致
 const GAP = 6;
@@ -47,19 +52,16 @@ function placePanel(rect: DOMRect, panelH: number) {
 }
 
 async function toggle() {
+  if (props.mode === "popup") {
+    await openPopupWindow();
+    return;
+  }
   if (open.value) {
     open.value = false;
     return;
   }
   const rect = btnRef.value?.getBoundingClientRect();
   if (rect) placePanel(rect, PANEL_H);
-  const base = props.remindAt ?? Date.now() + 3_600_000;
-  const d = new Date(base);
-  dayKey.value = dateKey(base);
-  hour.value = d.getHours();
-  minute.value = d.getMinutes();
-  minKey.value = dateKey(Date.now());
-  initialKey.value = dayKey.value;
   open.value = true;
   // 弹开后按实测高度校正:估算常量与真实高度(尤其向上弹时)的差值会变成与铃铛的空隙
   await nextTick();
@@ -67,29 +69,37 @@ async function toggle() {
   if (rect && measured) placePanel(rect, measured);
 }
 
-// 日期或时分任一变化即提交(不关面板,便于继续微调);铃铛旁的时间标签实时跟随
-function commit() {
-  if (!dayKey.value) return;
-  const [y, m, d] = dayKey.value.split("-").map(Number);
-  let ts = new Date(y, m - 1, d, hour.value, minute.value).getTime();
-  // 仅当所选分钟已整分钟过去(真正错过)才钳到 1 分钟后,库里不留过去时间戳;
-  // 当前分钟内的选择保留精确时刻(到点即触发):否则连续给多项设同一时刻时,
-  // 晚提交的一项会被静默 +60 秒,与其他项错开约一分钟;
-  // 钳制结果回写面板,避免下拉框显示与已生效的提醒时间不一致
-  if (ts < new Date().setSeconds(0, 0)) {
-    ts = Date.now() + 60_000;
-    const clamped = new Date(ts);
-    dayKey.value = dateKey(ts);
-    hour.value = clamped.getHours();
-    minute.value = clamped.getMinutes();
+// popup 模式:计算铃铛的屏幕物理坐标交给后端建窗(显示器钳制/向上翻转在 Rust 侧做)
+async function openPopupWindow() {
+  const itemId = props.itemId;
+  const btn = btnRef.value;
+  if (!itemId || !btn) return;
+  const rect = btn.getBoundingClientRect();
+  try {
+    const win = getCurrentWindow();
+    const [scale, outer] = await Promise.all([win.scaleFactor(), win.outerPosition()]);
+    // 无边框窗口内容区与外框重合;锚点 = 铃铛中心(水平)与下缘(垂直),物理像素
+    const anchorX = outer.x + Math.round((rect.left + rect.width / 2) * scale);
+    const anchorY = outer.y + Math.round(rect.bottom * scale);
+    await invoke("open_reminder_popup", { itemId, anchorX, anchorY });
+  } catch {
+    // 建窗失败静默降级(不崩溃,用户重试即可)
   }
-  emit("set", ts);
 }
 
-function clearReminder() {
-  emit("set", null);
-  open.value = false;
-}
+// 便签窗口被拖动时弹窗锚点已失效,立即关闭(拖动期间 onMoved 连续触发,
+// 首次调用销毁弹窗后,后续调用是廉价空扫)
+let unlistenMoved: UnlistenFn | null = null;
+onMounted(() => {
+  if (props.mode !== "popup") return;
+  getCurrentWindow()
+    .onMoved(() => {
+      invoke("close_reminder_popups").catch(() => {});
+    })
+    .then((fn) => (unlistenMoved = fn))
+    .catch(() => {});
+});
+onBeforeUnmount(() => unlistenMoved?.());
 
 function onDocMousedown(e: MouseEvent) {
   if (open.value && rootRef.value && !rootRef.value.contains(e.target as Node)) {
@@ -116,37 +126,16 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMousedown))
       </svg>
     </button>
 
-    <div v-if="open" ref="panelRef" class="rp-panel" :style="panelStyle">
-      <div class="rp-head">
-        <p class="rp-label">{{ t("reminder.customTime") }}</p>
-        <!-- 文字按钮放标题行右端:行高由标题决定,出现/消失不改变面板高度,
-             避免"设了提醒面板变高"把矮窗口的内容顶出截断 -->
-        <button v-if="remindAt !== null" class="rp-clear" @click="clearReminder">
-          {{ t("reminder.clear") }}
-        </button>
-      </div>
-      <CalendarGrid
-        v-model="dayKey"
-        :initial-key="initialKey"
-        :min-key="minKey"
-        compact
-        @update:model-value="commit"
+    <!-- panel 模式:fixed 浮层包住共用面板;弹窗小窗由后端另行创建 -->
+    <div v-if="open && mode === 'panel'" ref="panelRef" class="rp-floating" :style="panelStyle">
+      <ReminderPanel
+        :remind-at="remindAt"
+        @set="(ts) => emit('set', ts)"
+        @clear="
+          emit('set', null);
+          open = false;
+        "
       />
-      <div class="rp-time-row">
-        <TimeSelect
-          v-model="hour"
-          :max="23"
-          :aria-label="t('reminder.hour')"
-          @update:model-value="commit"
-        />
-        <span class="rp-colon">:</span>
-        <TimeSelect
-          v-model="minute"
-          :max="59"
-          :aria-label="t('reminder.minute')"
-          @update:model-value="commit"
-        />
-      </div>
     </div>
   </div>
 </template>
@@ -195,17 +184,10 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMousedown))
   opacity: 0.25;
 }
 
-/* 弹出面板 = 一张小纸条(fixed 定位,坐标在打开瞬间按铃铛位置计算) */
-.rp-panel {
+/* 浮层 = 定位容器(fixed,坐标在打开瞬间按铃铛位置计算),视觉卡片在 ReminderPanel */
+.rp-floating {
   position: fixed;
   z-index: 200;
-  width: 240px;
-  padding: 12px 12px 10px;
-  background-color: var(--surface);
-  background-image: var(--grain);
-  border: 1px solid var(--border-strong);
-  border-radius: 11px 14px 12px 15px / 14px 11px 15px 12px;
-  box-shadow: var(--shadow-l);
   animation: rp-pop 0.16s var(--ease-out);
 }
 @keyframes rp-pop {
@@ -213,55 +195,5 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMousedown))
     opacity: 0;
     transform: translateY(4px);
   }
-}
-/* 头部:标题居左,清除按钮(✕)居右上角 */
-.rp-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-.rp-label {
-  margin: 0;
-  font-family: var(--font-hand);
-  font-size: 12.5px;
-  color: var(--text-muted);
-}
-/* 清除提醒:标题行右端的小幽灵文字按钮,悬停转危险色 */
-.rp-clear {
-  flex: none;
-  border: none;
-  background: transparent;
-  color: var(--text-faint);
-  border-radius: var(--radius-s);
-  padding: 2px 6px;
-  font-family: var(--font-hand);
-  font-size: 11px;
-  line-height: 1.2;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    color 0.15s var(--ease-out),
-    background-color 0.15s var(--ease-out),
-    transform 0.12s var(--ease-out);
-}
-.rp-clear:hover {
-  color: var(--danger);
-  background: var(--danger-soft);
-}
-.rp-clear:active {
-  transform: scale(0.94);
-}
-/* 时/分下拉:纯数字选项,语言无关 */
-.rp-time-row {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 8px;
-}
-.rp-colon {
-  color: var(--text-faint);
-  font-size: 12.5px;
 }
 </style>

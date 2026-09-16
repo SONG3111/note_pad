@@ -4,6 +4,7 @@ mod i18n;
 #[cfg(desktop)]
 mod dock;
 mod reminder;
+mod reminder_popup;
 mod notify;
 mod sound;
 
@@ -13,11 +14,11 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use db::{Db, NoteWithItems, TodoItem};
 
-type CmdResult<T> = Result<T, String>;
+pub(crate) type CmdResult<T> = Result<T, String>;
 
 /// 在阻塞线程池执行数据库操作:主线程与异步运行时都不会被卡住。
 /// 锁被污染时返回友好错误而不是 panic。
-async fn with_conn<T, F>(db: Arc<Mutex<rusqlite::Connection>>, f: F) -> CmdResult<T>
+pub(crate) async fn with_conn<T, F>(db: Arc<Mutex<rusqlite::Connection>>, f: F) -> CmdResult<T>
 where
     T: Send + 'static,
     F: FnOnce(&rusqlite::Connection) -> CmdResult<T> + Send + 'static,
@@ -361,7 +362,10 @@ pub fn run() {
             set_todo_reminder,
             detach_note_window,
             set_window_on_top,
-            set_app_locale
+            set_app_locale,
+            reminder_popup::get_todo_item,
+            reminder_popup::open_reminder_popup,
+            reminder_popup::close_reminder_popups
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

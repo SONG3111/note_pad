@@ -162,7 +162,8 @@ describe("ReminderPicker 交互", () => {
     try {
       const wrapper = mountPicker();
       await openPanel(wrapper);
-      const panel = wrapper.find(".rp-panel");
+      // 定位样式在浮层容器上(fixed 定位),视觉卡片是内嵌的 ReminderPanel
+      const panel = wrapper.find(".rp-floating");
       const top = Number.parseFloat((panel.element as HTMLElement).style.top);
       // 向上弹的间距 = rect.top - (top + 面板高度) == 6,与向下弹的 rect.bottom + 6 对称
       expect(Math.round(rect.top - (top + PANEL_H))).toBe(6);
@@ -170,5 +171,85 @@ describe("ReminderPicker 交互", () => {
       heightSpy.mockRestore();
       vi.restoreAllMocks();
     }
+  });
+});
+
+describe("ReminderPicker popup 模式(独立便签窗口)", () => {
+  // 窗口 mock 的共享捕获:onMoved 回调由组件挂载时注册,用例触发它验证联动关窗
+  const shared = vi.hoisted(() => ({
+    invokeMock: vi.fn(),
+    movedHandler: null as (() => void) | null,
+  }));
+  vi.mock("@tauri-apps/api/core", () => ({ invoke: shared.invokeMock }));
+  vi.mock("@tauri-apps/api/window", () => ({
+    getCurrentWindow: () => ({
+      label: "note-n1",
+      // 2x 缩放 + 窗口原点 (100,200):坐标换算可被精确断言
+      scaleFactor: async () => 2,
+      outerPosition: async () => ({ x: 100, y: 200 }),
+      onMoved: async (h: () => void) => {
+        shared.movedHandler = h;
+        return () => {};
+      },
+    }),
+  }));
+
+  function mountPopupPicker(itemId = "i1", remindAt: number | null = null) {
+    return mount(ReminderPicker, {
+      global: { plugins: [i18n] },
+      props: { remindAt, mode: "popup", itemId },
+    });
+  }
+
+  beforeEach(() => {
+    shared.invokeMock.mockReset().mockResolvedValue(undefined);
+    shared.movedHandler = null;
+  });
+
+  it("点击铃铛不渲染本地浮层,而是按屏幕坐标请求后端建弹窗", async () => {
+    const wrapper = mountPopupPicker();
+    // 按钮在窗口内容区 (left 20, width 22, bottom 32),物理坐标 = 原点 + 逻辑×2
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      left: 20,
+      top: 10,
+      right: 42,
+      bottom: 32,
+      width: 22,
+      height: 22,
+    } as DOMRect);
+    try {
+      await wrapper.find(".rp-btn").trigger("click");
+      await vi.waitFor(() =>
+        expect(shared.invokeMock).toHaveBeenCalledWith("open_reminder_popup", {
+          itemId: "i1",
+          anchorX: 100 + 31 * 2, // 铃铛中心 x
+          anchorY: 200 + 32 * 2, // 铃铛下缘 y
+        }),
+      );
+      expect(wrapper.find(".rp-panel").exists()).toBe(false);
+      expect(wrapper.find(".rp-floating").exists()).toBe(false);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("挂载即监听父窗口移动,窗口被拖动时关闭所有提醒弹窗", async () => {
+    const wrapper = mountPopupPicker();
+    await vi.waitFor(() => expect(shared.movedHandler).not.toBeNull());
+    shared.movedHandler!();
+    await vi.waitFor(() =>
+      expect(shared.invokeMock).toHaveBeenCalledWith("close_reminder_popups"),
+    );
+    wrapper.unmount();
+  });
+
+  it("panel 模式(默认)不请求后端建窗", async () => {
+    const wrapper = mount(ReminderPicker, {
+      global: { plugins: [i18n] },
+      props: { remindAt: null },
+    });
+    await openPanel(wrapper);
+    expect(shared.invokeMock).not.toHaveBeenCalled();
+    expect(wrapper.find(".rp-floating").exists()).toBe(true);
   });
 });

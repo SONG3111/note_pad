@@ -40,6 +40,10 @@ vi.mock("@tauri-apps/api/window", () => ({
       shared.closeHandler = h;
       return () => {};
     },
+    // 提醒选择器 popup 模式挂载/点击时使用
+    scaleFactor: () => Promise.resolve(1),
+    outerPosition: () => Promise.resolve({ x: 0, y: 0 }),
+    onMoved: async () => () => {},
   }),
 }));
 vi.mock("@tauri-apps/api/event", () => ({

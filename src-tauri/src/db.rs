@@ -361,7 +361,7 @@ pub fn update_item(conn: &Connection, id: &str, text: Option<&str>, checked: Opt
         .map_err(|e| e.to_string())?;
     }
     touch_note(conn, &note_id)?;
-    query_item(conn, id)
+    get_item(conn, id)
 }
 
 /// 设置/清除待办项提醒(remind_at 为 None 表示清除),返回更新后的项。
@@ -387,7 +387,7 @@ pub fn set_reminder(conn: &Connection, id: &str, remind_at: Option<i64>) -> Resu
     )
     .map_err(|e| e.to_string())?;
     touch_note(conn, &note_id)?;
-    query_item(conn, id)
+    get_item(conn, id)
 }
 
 /// 提醒触发后清除该项提醒;expected 是扫描时的 remind_at 值,
@@ -462,7 +462,8 @@ pub fn delete_item(conn: &Connection, id: &str) -> Result<String, String> {
     Ok(note_id.unwrap_or_default())
 }
 
-fn query_item(conn: &Connection, id: &str) -> Result<TodoItem, String> {
+/// 按 id 查单个待办项(提醒弹窗初始化用);不存在时返回稳定码 ITEM_NOT_FOUND
+pub fn get_item(conn: &Connection, id: &str) -> Result<TodoItem, String> {
     conn.query_row(
         "SELECT id, note_id, text, checked, sort_order, updated_at, remind_at FROM todo_items WHERE id = ?1",
         params![id],
@@ -478,7 +479,14 @@ fn query_item(conn: &Connection, id: &str) -> Result<TodoItem, String> {
             })
         },
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| {
+        // 稳定的错误契约:前端弹窗据此区分"项已删除"与瞬时 DB 错误
+        if matches!(e, rusqlite::Error::QueryReturnedNoRows) {
+            "ITEM_NOT_FOUND".to_string()
+        } else {
+            e.to_string()
+        }
+    })
 }
 
 pub fn touch_note(conn: &Connection, note_id: &str) -> Result<(), String> {
@@ -786,11 +794,27 @@ mod tests {
 
         // remind_at 为空时恢复成功
         assert!(restore_reminder(&conn, &item.id, 1_234).unwrap());
-        assert_eq!(query_item(&conn, &item.id).unwrap().remind_at, Some(1_234));
+        assert_eq!(get_item(&conn, &item.id).unwrap().remind_at, Some(1_234));
 
         // 已有值(用户改设了新提醒)时不覆盖
         set_reminder(&conn, &item.id, Some(9_999)).unwrap();
         assert!(!restore_reminder(&conn, &item.id, 1_234).unwrap());
-        assert_eq!(query_item(&conn, &item.id).unwrap().remind_at, Some(9_999));
+        assert_eq!(get_item(&conn, &item.id).unwrap().remind_at, Some(9_999));
+    }
+
+    #[test]
+    fn get_item_returns_item_or_stable_not_found() {
+        let conn = mem();
+        let n = create_note(&conn, &note_input("todo", None)).unwrap();
+        let item = add_item(&conn, &n.note.id, "带提醒").unwrap();
+        set_reminder(&conn, &item.id, Some(42)).unwrap();
+
+        let got = get_item(&conn, &item.id).unwrap();
+        assert_eq!(got.id, item.id);
+        assert!(!got.checked);
+        assert_eq!(got.remind_at, Some(42));
+
+        // 不存在的项返回稳定码:提醒弹窗据此自关
+        assert_eq!(get_item(&conn, "nope").unwrap_err(), "ITEM_NOT_FOUND");
     }
 }
