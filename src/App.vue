@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, ref } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
+import { useI18n } from "vue-i18n";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useNotesStore, type ViewFilter } from "./stores/notes";
 import { dateKey, formatDateLabel, type NoteWithItems } from "./types";
+import { appLocale, toggleLocale } from "./composables/useLocale";
 import NoteCard from "./components/NoteCard.vue";
 import NoteEditor from "./components/NoteEditor.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import DatePicker from "./components/DatePicker.vue";
 
+const { t } = useI18n();
 const store = useNotesStore();
 const {
   visible: visibleNotes,
@@ -48,6 +51,8 @@ function hideToTray() {
 }
 
 onMounted(async () => {
+  // 无边框窗口的标题栏不可见,但任务栏/Alt+Tab 仍显示标题,跟随语言
+  void appWindow.setTitle(t("app.name"));
   await store.load();
   // 全局快捷键:Ctrl+Alt+T 快速待办 / Ctrl+Alt+N 快速便签
   unlistenQuickAdd = await listen<"todo" | "note">("quick-add", (e) => {
@@ -103,11 +108,11 @@ async function newNote(type: "note" | "todo") {
   editingId.value = created.id;
 }
 
-const filters: Array<{ key: ViewFilter; label: string }> = [
-  { key: "all", label: "全部" },
-  { key: "todo", label: "待办" },
-  { key: "note", label: "便签" },
-];
+const filters = computed<Array<{ key: ViewFilter; label: string }>>(() => [
+  { key: "all", label: t("main.tabAll") },
+  { key: "todo", label: t("main.tabTodo") },
+  { key: "note", label: t("main.tabNote") },
+]);
 
 function countOf(key: ViewFilter): number {
   let pool = allNotes.value.filter(inBoard);
@@ -121,13 +126,18 @@ function countOf(key: ViewFilter): number {
 
 const isDateFiltering = computed(() => !!dateFilter.value);
 const dateFilterLabel = computed(() =>
-  dateFilter.value ? formatDateLabel(dateFilter.value) : ""
+  dateFilter.value ? formatDateLabel(dateFilter.value, appLocale.value) : ""
 );
 
 const emptyHint = computed(() => {
-  if (viewFilter.value === "todo") return "暂无待办,添加任务来规划生活";
-  if (viewFilter.value === "note") return "暂无便签,捕捉转瞬即逝的灵感";
-  return "暂无任何记录,快来新建你的第一条内容吧";
+  if (viewFilter.value === "todo") return t("main.emptyTodo");
+  if (viewFilter.value === "note") return t("main.emptyNote");
+  return t("main.emptyAll");
+});
+
+// 手动切换语言后同步窗口标题(任务栏/Alt+Tab 里的名字)
+watch(appLocale, () => {
+  void appWindow.setTitle(t("app.name"));
 });
 
 function removeNote(id: string) {
@@ -153,15 +163,18 @@ function closeEditor(isEmpty?: boolean) {
 <template>
   <div class="app">
     <header class="topbar" data-tauri-drag-region>
-      <h1 class="brand" data-tauri-drag-region>灵感便签</h1>
+      <h1 class="brand" data-tauri-drag-region>{{ t("app.name") }}</h1>
       <div class="win-controls">
-        <button class="win-btn" title="最小化" @click="appWindow.minimize()">
+        <button class="win-btn lang" :title="t('settings.switchLanguage')" @click="toggleLocale">
+          <span class="lang-label">{{ appLocale === "zh-CN" ? "EN" : "CN" }}</span>
+        </button>
+        <button class="win-btn" :title="t('main.minimize')" @click="appWindow.minimize()">
           <svg width="11" height="11" viewBox="0 0 11 11"><rect x="0" y="5" width="11" height="1" fill="currentColor"/></svg>
         </button>
-        <button class="win-btn" title="最大化/还原" @click="appWindow.toggleMaximize()">
+        <button class="win-btn" :title="t('main.maximizeRestore')" @click="appWindow.toggleMaximize()">
           <svg width="11" height="11" viewBox="0 0 11 11"><rect x="0.5" y="0.5" width="10" height="10" fill="none" stroke="currentColor"/></svg>
         </button>
-        <button class="win-btn close" title="隐藏到托盘" @click="hideToTray()">
+        <button class="win-btn close" :title="t('main.hideToTray')" @click="hideToTray()">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
         </button>
       </div>
@@ -185,25 +198,25 @@ function closeEditor(isEmpty?: boolean) {
           <path d="M10.2 4.4c3.5-1.2 7 .6 7.8 3.8.7 3.1-1.6 6.2-5 6.9-3.4.6-6.7-1.4-7.4-4.5-.6-2.7 1.2-5.2 4.6-6.2z" />
           <path d="M17.6 15.8c1.2 1.3 2.3 2.7 3.2 4" />
         </svg>
-        <input v-model="searchQuery" class="search" type="search" placeholder="搜索便签、待办" />
+        <input v-model="searchQuery" class="search" type="search" :placeholder="t('main.searchPlaceholder')" />
         <!-- 日历筛选入口收在搜索框右端:不挤占页签/搜索宽度,面板向左展开完整可见 -->
         <DatePicker />
       </div>
     </div>
 
     <main class="board">
-      <p v-if="loading" class="empty">加载中…</p>
+      <p v-if="loading" class="empty">{{ t("main.loading") }}</p>
       <p v-else-if="boardNotes.length === 0" class="empty">
         <!-- 搜索中:永远给搜索反馈,而不是"暂无数据"的建导提示,
              否则当前页签没数据但其他页签有数据时,提示语会误导用户 -->
         <template v-if="isSearching">
-          没有匹配「{{ searchQuery }}」的记录
-          <br /><span class="empty-hint">换个关键词试试,或清空搜索查看全部</span>
+          {{ t("main.searchEmpty", { query: searchQuery }) }}
+          <br /><span class="empty-hint">{{ t("main.searchEmptyHint") }}</span>
         </template>
         <!-- 日期筛选生效且该日期无记录:给出筛选语境的反馈与解除入口 -->
         <template v-else-if="isDateFiltering">
-          {{ dateFilterLabel }} 暂无记录
-          <br /><span class="empty-hint">点工具栏的日历图标,「清除筛选」查看全部</span>
+          {{ t("main.dateFilterEmpty", { date: dateFilterLabel }) }}
+          <br /><span class="empty-hint">{{ t("main.dateFilterEmptyHint") }}</span>
         </template>
         <template v-else>{{ emptyHint }}</template>
       </p>
@@ -241,16 +254,19 @@ function closeEditor(isEmpty?: boolean) {
     <!-- 悬浮新建区:透明幕布承接"点空白处收起",胶囊带错峰弹出动画 -->
     <div v-if="fabOpen" class="fab-backdrop" @click="fabOpen = false"></div>
     <div class="fab-area" :class="{ open: fabOpen }">
-      <button v-if="viewFilter !== 'note'" class="fab-opt todo" @click="fabCreate('todo')">＋ 待办</button>
-      <button v-if="viewFilter !== 'todo'" class="fab-opt note" @click="fabCreate('note')">＋ 便签</button>
-      <button class="fab-main" :title="fabOpen ? '收起' : '新建'" aria-label="新建" @click="fabOpen = !fabOpen">
+      <button v-if="viewFilter !== 'note'" class="fab-opt todo" @click="fabCreate('todo')">{{ t("main.fabTodo") }}</button>
+      <button v-if="viewFilter !== 'todo'" class="fab-opt note" @click="fabCreate('note')">{{ t("main.fabNote") }}</button>
+      <button class="fab-main" :title="fabOpen ? t('main.fabCollapse') : t('main.fabNew')" :aria-label="t('main.fabNewAria')" @click="fabOpen = !fabOpen">
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 4.8c.25 4.6.32 9.5.15 14.5M4.8 12.15c4.7-.2 9.5-.15 14.4.2" /></svg>
       </button>
     </div>
 
     <ConfirmDialog
       :open="confirmId !== null"
-      message="删除后无法恢复,确定要删除这条记录吗?"
+      :title="t('dialog.deleteTitle')"
+      :message="t('dialog.deleteMessage')"
+      :confirm-text="t('dialog.delete')"
+      :cancel-text="t('dialog.cancel')"
       @confirm="doRemove"
       @cancel="confirmId = null"
     />
@@ -330,6 +346,13 @@ body,
 .win-btn:hover {
   background: var(--bg-soft);
   color: var(--text-strong);
+}
+/* 语言切换按钮:手写体的中/EN 小字标 */
+.win-btn .lang-label {
+  font-family: var(--font-hand);
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: 0.5px;
 }
 .win-btn.close:hover {
   background: var(--danger);

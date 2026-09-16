@@ -47,3 +47,5 @@ skills-lock.json
 .zcode/
 
 .npm-cache/
+# Mimosa 安全扫描插件的状态与基线快照
+.mimosa/

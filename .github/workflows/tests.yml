@@ -31,7 +31,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-action@stable
+      - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --manifest-path src-tauri/Cargo.toml
 
   e2e:
@@ -40,7 +40,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-action@stable
+      - uses: dtolnay/rust-toolchain@stable
       - name: Install Edge WebDriver
         shell: pwsh
         run: |

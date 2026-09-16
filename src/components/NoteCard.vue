@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { relativeTime, type NoteWithItems } from "../types";
 import { mapCardColor } from "../colors";
+import { appLocale } from "../composables/useLocale";
 import TodoCheckbox from "./TodoCheckbox.vue";
 import { useNotesStore } from "../stores/notes";
+
+const { t } = useI18n();
 
 const props = defineProps<{ note: NoteWithItems; detached?: boolean }>();
 
@@ -74,27 +78,27 @@ watch(allDone, (v, was) => {
 
 <template>
   <article class="card" :style="{ '--card-color': mapCardColor(note.color) }" @mousedown="onDown">
-    <span v-if="detached" class="win-badge" title="该记录已在独立窗口中打开,点击可聚焦该窗口">独立窗口中</span>
+    <span v-if="detached" class="win-badge" :title="t('noteCard.detachedBadgeTitle')">{{ t("noteCard.detachedBadge") }}</span>
     <div class="card-top">
-      <span v-if="note.pinned" class="pin-badge" title="已置顶">
+      <span v-if="note.pinned" class="pin-badge" :title="t('noteCard.pinnedBadge')">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 7 3 3H5l3-3 1-7z"/></svg>
       </span>
       <div class="card-actions">
-        <button class="icon-btn" title="编辑" @click="emit('edit')">
+        <button class="icon-btn" :title="t('noteCard.edit')" @click="emit('edit')">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
         </button>
-        <button class="icon-btn" title="拖出为独立窗口" @click="emit('detach', false)">
+        <button class="icon-btn" :title="t('noteCard.detach')" @click="emit('detach', false)">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
         </button>
         <button
           class="icon-btn"
           :class="{ active: note.pinned }"
-          :title="note.pinned ? '取消置顶' : '置顶'"
+          :title="note.pinned ? t('noteCard.unpin') : t('noteCard.pin')"
           @click="emit('togglePin')"
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 7 3 3H5l3-3 1-7z"/></svg>
         </button>
-        <button class="icon-btn danger" title="删除" @click="emit('remove')">
+        <button class="icon-btn danger" :title="t('noteCard.delete')" @click="emit('remove')">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
         </button>
       </div>
@@ -107,7 +111,7 @@ watch(allDone, (v, was) => {
       <div v-for="item in visibleItems" :key="item.id" class="todo-row">
         <TodoCheckbox :checked="item.checked" @change="emit('toggleItem', item.id, !item.checked)" />
         <span class="todo-text" :class="{ done: item.checked }">{{ item.text }}</span>
-        <button class="row-del" title="删除此项" @click="emit('removeItem', item.id)">
+        <button class="row-del" :title="t('noteCard.deleteItem')" @click="emit('removeItem', item.id)">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
         </button>
       </div>
@@ -115,16 +119,16 @@ watch(allDone, (v, was) => {
         <svg class="chev" :class="{ up: expanded }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
           <path d="M6 9l6 6 6-6" />
         </svg>
-        {{ expanded ? "收起" : `展开全部 ${note.items.length} 项` }}
+        {{ expanded ? t("noteCard.collapse") : t("noteCard.expandAll", { n: note.items.length }) }}
       </button>
-      <p v-if="note.items.length === 0" class="more-hint">空待办 · 编辑添加</p>
+      <p v-if="note.items.length === 0" class="more-hint">{{ t("noteCard.emptyTodoHint") }}</p>
       <div v-if="totalCount > 0" class="progress-wrap">
         <div class="progress-bar"><div class="progress-fill" :style="{ width: progress + '%' }"></div></div>
         <span class="progress-text">{{ doneCount }}/{{ totalCount }}</span>
       </div>
     </div>
 
-    <footer class="card-footer">{{ relativeTime(note.updatedAt) }}</footer>
+    <footer class="card-footer">{{ relativeTime(note.updatedAt, appLocale) }}</footer>
   </article>
 </template>
 

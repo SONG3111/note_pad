@@ -1,3 +1,5 @@
+import type { AppLocale } from "./i18n";
+
 export type NoteType = "note" | "todo";
 
 export interface TodoItem {
@@ -35,16 +37,17 @@ export const NOTE_COLORS = [
   "#d5c6dd", // lavender
 ] as const;
 
-export function relativeTime(ts: number): string {
+/// 相对时间文案:保持纯函数,locale 由调用方传入(组件里取 appLocale)
+export function relativeTime(ts: number, locale: AppLocale): string {
   const diff = Date.now() - ts;
   const m = Math.floor(diff / 60_000);
-  if (m < 1) return "刚刚";
-  if (m < 60) return `${m} 分钟前`;
+  if (m < 1) return locale === "zh-CN" ? "刚刚" : "just now";
+  if (m < 60) return locale === "zh-CN" ? `${m} 分钟前` : `${m}m ago`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h} 小时前`;
+  if (h < 24) return locale === "zh-CN" ? `${h} 小时前` : `${h}h ago`;
   const d = Math.floor(h / 24);
-  if (d < 7) return `${d} 天前`;
-  return new Date(ts).toLocaleDateString("zh-CN");
+  if (d < 7) return locale === "zh-CN" ? `${d} 天前` : `${d}d ago`;
+  return new Date(ts).toLocaleDateString(locale);
 }
 
 /// Unix 毫秒 → 本地时区 "YYYY-MM-DD"。
@@ -56,8 +59,8 @@ export function dateKey(ts: number): string {
   return `${d.getFullYear()}-${month}-${day}`;
 }
 
-/// "YYYY-MM-DD" → "M月D日"(去前导零),用于筛选态提示文案
-export function formatDateLabel(key: string): string {
+/// "YYYY-MM-DD" → "M月D日"/"M/D"(去前导零),用于筛选态提示文案
+export function formatDateLabel(key: string, locale: AppLocale): string {
   const [, m, d] = key.split("-").map(Number);
-  return `${m}月${d}日`;
+  return locale === "zh-CN" ? `${m}月${d}日` : `${m}/${d}`;
 }

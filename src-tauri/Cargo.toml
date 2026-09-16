@@ -26,4 +26,5 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 uuid = { version = "1", features = ["v7"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
+sys-locale = "0.3"
 
