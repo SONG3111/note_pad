@@ -45,3 +45,5 @@ skills-lock.json
 
 # ZCode 会话产物(计划文件等)
 .zcode/
+
+.npm-cache/
