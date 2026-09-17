@@ -67,3 +67,36 @@ export function playAllDoneSound() {
     blip(ac, { at: 0.18, from: 1319, to: 1319, dur: 0.22, peak: 0.11 });
   } catch {}
 }
+
+/// 撕纸:白噪声经带通扫频 + 两段急拉的抖动包络,模拟纤维次第断开的"刺啦"声。
+/// 峰值 0.14 比勾选音略突出——瞬态噪声听感比纯音轻,需稍大才可闻,但仍克制
+export function playTearSound() {
+  try {
+    const ac = ensureCtx();
+    const t = ac.currentTime;
+    const dur = 0.22;
+    const buf = ac.createBuffer(1, Math.ceil(ac.sampleRate * dur), ac.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const src = ac.createBufferSource();
+    src.buffer = buf;
+    // 带通扫频:撕口从细密到豁开,能量从高频滑向低频
+    const bp = ac.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.Q.value = 0.8;
+    bp.frequency.setValueAtTime(2600, t);
+    bp.frequency.exponentialRampToValueAtTime(650, t + dur);
+    const gain = ac.createGain();
+    // 包络:两次急拉、中间瞬断——纸不是被匀速撕开的
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.14, t + 0.018);
+    gain.gain.exponentialRampToValueAtTime(0.02, t + 0.07);
+    gain.gain.exponentialRampToValueAtTime(0.11, t + 0.105);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(bp).connect(gain).connect(ac.destination);
+    src.start(t);
+    src.stop(t + dur);
+  } catch {
+    // 音效非核心功能,音频不可用时静默降级
+  }
+}
