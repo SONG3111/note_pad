@@ -57,13 +57,83 @@ async fn get_note(state: State<'_, Db>, id: String) -> CmdResult<NoteWithItems> 
     .await
 }
 
-/// 把便签从主界面拖出为独立窗口:drag=true 表示来自拖拽手势(鼠标仍按住,可无缝续拖)
+/// 独立便签窗口的固定内容尺寸(逻辑 px),与抓取点钳制共用
+const NOTE_WINDOW_W: f64 = 360.0;
+const NOTE_WINDOW_H: f64 = 380.0;
+/// 抓取点在窗口内的最小边距(逻辑 px):卡片可能比窗口大,
+/// 手指捏住的部位按最近等价位置落进窗口,避免捏着边缘时窗口飘出光标外
+const GRAB_MARGIN_X: f64 = 24.0;
+const GRAB_MARGIN_Y: f64 = 20.0;
+
+/// 拖出/按钮脱离时的定位参数(全部可选,缺省回退旧行为)
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DetachOrigin {
+    /// 触发时刻的光标物理坐标(前端由事件坐标+窗口变换换算,无实时查询延迟)
+    cursor_x: Option<i32>,
+    cursor_y: Option<i32>,
+    /// 光标在源卡片内的偏移(CSS px):新窗口按它锚定,实现零跳变交接
+    grab_dx: Option<f64>,
+    grab_dy: Option<f64>,
+}
+
+/// 抓取点钳制进窗口尺寸(逻辑 px)
+fn clamp_grab(grab: (f64, f64)) -> (f64, f64) {
+    (
+        grab.0.clamp(GRAB_MARGIN_X, NOTE_WINDOW_W - GRAB_MARGIN_X),
+        grab.1.clamp(GRAB_MARGIN_Y, NOTE_WINDOW_H - GRAB_MARGIN_Y),
+    )
+}
+
+/// 由光标物理坐标与抓取点计算新窗口左上角的逻辑坐标(建窗用;纯函数便于单测)。
+/// 零跳变交接的关键:窗口落点 = 光标 − 抓取偏移,手指捏住卡片的哪个部位,
+/// 新窗口的同一部位就在手指下面,拖出瞬间内容不再跳位
+fn detach_position(cursor: (f64, f64), grab: (f64, f64), scale: f64) -> (f64, f64) {
+    let g = clamp_grab(grab);
+    ((cursor.0 - g.0 * scale) / scale, (cursor.1 - g.1 * scale) / scale)
+}
+
+/// 光标所在显示器的缩放(找不到时回退主显示器,再回退 1.0):
+/// 多显示器缩放不同,固定用主显示器换算会让窗口在副屏上错位
+fn scale_at(app: &AppHandle, x: f64, y: f64) -> f64 {
+    let containing = app.available_monitors().ok().and_then(|mons| {
+        mons.into_iter().find(|m| {
+            let p = m.position();
+            let s = m.size();
+            x >= p.x as f64
+                && x < p.x as f64 + s.width as f64
+                && y >= p.y as f64
+                && y < p.y as f64 + s.height as f64
+        })
+    });
+    containing
+        .or_else(|| app.primary_monitor().ok().flatten())
+        .map(|m| m.scale_factor())
+        .unwrap_or(1.0)
+}
+
+/// 独立便签窗口首次被用户拖动时注册进停靠管理(前端 onMoved 触发):
+/// 新建窗口的落点不受"边缘停留即吸附"影响,贴边只源于用户后续的主动拖动
+#[tauri::command]
+async fn register_note_dock(app: AppHandle, label: String) -> CmdResult<()> {
+    if !label.starts_with("note-") {
+        return Err("BAD_LABEL".into());
+    }
+    if app.get_webview_window(&label).is_some() {
+        dock::register(label);
+    }
+    Ok(())
+}
+
+/// 把便签从主界面拖出为独立窗口。
+/// 前端两段式手势:松手且拖动超过脱离距离后才调用,纸片飞向本窗口落点完成交接,
+/// 因此不再做拖拽中途的窗口接管(旧 start_dragging 已移除)。
 #[tauri::command]
 async fn detach_note_window(
     app: AppHandle,
     state: State<'_, Db>,
     id: String,
-    drag: Option<bool>,
+    origin: Option<DetachOrigin>,
 ) -> CmdResult<()> {
     // 确认笔记存在(阻塞操作放线程池,不占用异步运行时线程)
     let check_id = id.clone();
@@ -81,32 +151,41 @@ async fn detach_note_window(
     #[cfg(desktop)]
     {
         use tauri::WebviewUrl;
-        let cp = app.cursor_position().map_err(|e| e.to_string())?;
-        let (w, h) = (360.0_f64, 380.0_f64);
-        let x = (cp.x - w * 0.5).max(0.0);
-        let y = (cp.y - 24.0).max(0.0);
-        let scale = app
-            .primary_monitor()
-            .map_err(|e| e.to_string())?
-            .map(|m| m.scale_factor())
-            .unwrap_or(1.0);
+        let o = origin.unwrap_or_default();
+        // 光标物理坐标:拖拽路径由前端随事件携带(无查询延迟);缺省回退后端实时查询
+        let (cx, cy) = match (o.cursor_x, o.cursor_y) {
+            (Some(x), Some(y)) => (x as f64, y as f64),
+            _ => {
+                let cp = app.cursor_position().map_err(|e| e.to_string())?;
+                (cp.x, cp.y)
+            }
+        };
+        let scale = scale_at(&app, cx, cy);
+        // 抓取点缺省 ≈ 旧版落点习惯(窗口中上),按钮路径与锚定语义保持一致
+        let grab = (
+            o.grab_dx.unwrap_or(NOTE_WINDOW_W * 0.5),
+            o.grab_dy.unwrap_or(GRAB_MARGIN_Y + 4.0),
+        );
+        let (x, y) = detach_position((cx, cy), grab, scale);
+        // 入场动画原点 = 钳制后的抓取点(窗口内逻辑坐标),经查询参数交给新窗口
+        let (gx, gy) = clamp_grab(grab);
+        let url = format!("index.html?detach=1&gx={:.0}&gy={:.0}", gx, gy);
 
-        let win = tauri::WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
+        // 隐身创建:webview 加载期间落点处不能先闪出空白窗框;
+        // 由 NoteWindowApp 首帧渲染完成后自行 show()+set_focus(),与主窗口纸片同帧交接
+        tauri::WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url.into()))
             .title(i18n::current(&app).app_title())
-            .inner_size(w, h)
-            .position(x / scale, y / scale)
+            .inner_size(NOTE_WINDOW_W, NOTE_WINDOW_H)
+            .position(x, y)
             .decorations(false)
             .transparent(true)
             .shadow(false)
+            .visible(false)
             .build()
             .map_err(|e| e.to_string())?;
-
-        let _ = win.set_focus();
-        // 仅当鼠标仍按住时才进入拖动循环;按钮点击路径调用会卡死消息泵!
-        if drag.unwrap_or(false) {
-            let _ = win.start_dragging();
-        }
-        dock::register(label);
+        // 注意:此处不注册停靠管理(dock)。新窗口落点可能在屏幕边缘附近,
+        // 立即注册会被 dock 的"边缘停留即吸附"逻辑当场贴边隐藏;
+        // 由 NoteWindowApp 在窗口首次被用户拖动时调用 register_note_dock 注册
     }
     Ok(())
 }
@@ -366,6 +445,7 @@ pub fn run() {
             delete_todo_item,
             set_todo_reminder,
             detach_note_window,
+            register_note_dock,
             set_window_on_top,
             set_app_locale,
             reminder_popup::get_todo_item,
@@ -374,4 +454,43 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detach_position_anchors_grab_point_under_cursor() {
+        // @1x:抓取点 (100, 80) → 窗口左上角 = 光标 − 抓取偏移,捏住的部位原位不动
+        let (x, y) = detach_position((500.0, 400.0), (100.0, 80.0), 1.0);
+        assert_eq!((x, y), (400.0, 320.0));
+    }
+
+    #[test]
+    fn detach_position_clamps_grab_into_window() {
+        // 卡片比窗口大:捏着超出窗口范围的部位时,按最近等价位置钳制后落位
+        let (x, y) = detach_position((500.0, 400.0), (340.0, 360.0), 1.0);
+        assert_eq!(
+            (x, y),
+            (
+                500.0 - (NOTE_WINDOW_W - GRAB_MARGIN_X),
+                400.0 - (NOTE_WINDOW_H - GRAB_MARGIN_Y)
+            )
+        );
+    }
+
+    #[test]
+    fn detach_position_scales_physical_cursor_and_css_grab() {
+        // @2x:光标是物理坐标,抓取点是 CSS px(物理偏移 = grab×2),输出为逻辑坐标
+        let (x, y) = detach_position((1000.0, 800.0), (100.0, 80.0), 2.0);
+        assert_eq!((x, y), ((1000.0 - 200.0) / 2.0, (800.0 - 160.0) / 2.0));
+    }
+
+    #[test]
+    fn clamp_grab_defaults_stay_inside_window() {
+        // 按钮路径的缺省抓取点(中上)必须落在钳制范围内,入场动画原点不越界
+        let g = clamp_grab((NOTE_WINDOW_W * 0.5, GRAB_MARGIN_Y + 4.0));
+        assert_eq!(g, (NOTE_WINDOW_W * 0.5, GRAB_MARGIN_Y + 4.0));
+    }
 }

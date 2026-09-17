@@ -17,6 +17,7 @@ enableAutoUnmount(afterEach);
 
 type CloseHandler = (e: { preventDefault: () => void }) => Promise<void> | void;
 type ChangedHandler = (e: { payload: { id: string; source: string } }) => void;
+type MovedHandler = () => void;
 
 // vi.mock 工厂与模块顶层 import 同步执行,共享状态须经 vi.hoisted 建立
 const shared = vi.hoisted(() => {
@@ -26,6 +27,9 @@ const shared = vi.hoisted(() => {
     destroyMock: vi.fn(),
     closeHandler: null as CloseHandler | null,
     changedHandler: null as ChangedHandler | null,
+    // 真实 Tauri 支持同一窗口多个 onMoved 监听(NoteWindowApp 的停靠注册、
+    // ReminderPicker 的关弹窗清扫各自注册),mock 用数组完整建模
+    movedHandlers: [] as MovedHandler[],
   };
 });
 
@@ -35,6 +39,9 @@ vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
     label: "note-n1",
     setTitle: () => Promise.resolve(),
+    // 窗口隐身创建,首帧就绪后由前端 show+setFocus(见 NoteWindowApp onMounted)
+    show: () => Promise.resolve(),
+    setFocus: () => Promise.resolve(),
     destroy: shared.destroyMock,
     onCloseRequested: async (h: CloseHandler) => {
       shared.closeHandler = h;
@@ -44,7 +51,10 @@ vi.mock("@tauri-apps/api/window", () => ({
     scaleFactor: () => Promise.resolve(1),
     innerPosition: () => Promise.resolve({ x: 0, y: 0 }),
     outerPosition: () => Promise.resolve({ x: 0, y: 0 }),
-    onMoved: async () => () => {},
+    onMoved: async (h: MovedHandler) => {
+      shared.movedHandlers.push(h);
+      return () => {};
+    },
   }),
 }));
 vi.mock("@tauri-apps/api/event", () => ({
@@ -85,6 +95,7 @@ beforeEach(() => {
   shared.destroyMock.mockReset().mockResolvedValue(undefined);
   shared.closeHandler = null;
   shared.changedHandler = null;
+  shared.movedHandlers = [];
   i18n.global.locale.value = "zh-CN";
 });
 
@@ -180,5 +191,49 @@ describe("NoteWindowApp 待办文本失焦", () => {
     await input.trigger("blur");
     expect((input.element as HTMLInputElement).value).toBe("事项");
     expect(shared.invokeMock).not.toHaveBeenCalledWith("update_todo_item", expect.anything());
+  });
+});
+
+describe("NoteWindowApp 拖出入场动画", () => {
+  it("带 detach 查询参数:先透明占位,首帧后翻为淡入", async () => {
+    window.history.replaceState(null, "", "/?detach=1");
+    try {
+      const wrapper = mountWindow();
+      await flushPromises();
+      const nwin = wrapper.find(".nwin");
+      // show 后的首个 rAF 才翻 entered:在此之前保持 pre(透明),避免淡入从跳变起步
+      expect(nwin.classes()).toContain("nwin-pre");
+      await new Promise((r) => requestAnimationFrame(r));
+      await flushPromises();
+      expect(nwin.classes()).toContain("nwin-in");
+      expect(nwin.classes()).not.toContain("nwin-pre");
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
+  });
+
+  it("无 detach 参数(普通启动)不播放入场动画", async () => {
+    const wrapper = mountWindow();
+    await flushPromises();
+    const nwin = wrapper.find(".nwin");
+    expect(nwin.classes()).not.toContain("nwin-in");
+    expect(nwin.classes()).not.toContain("nwin-pre");
+  });
+});
+
+describe("NoteWindowApp 停靠注册", () => {
+  it("首次被拖动(窗口移动)时注册进停靠管理,且只注册一次", async () => {
+    mountWindow();
+    await flushPromises();
+    shared.invokeMock.mockClear();
+    expect(shared.movedHandlers.length).toBeGreaterThanOrEqual(2); // 停靠注册 + 提醒选择器清扫
+
+    shared.movedHandlers.forEach((h) => h());
+    shared.movedHandlers.forEach((h) => h());
+    await flushPromises();
+    // 移动事件同时会触发提醒选择器的关弹窗清扫;停靠注册请求本身只发一次
+    const registerCalls = shared.invokeMock.mock.calls.filter(([c]) => c === "register_note_dock");
+    expect(registerCalls).toHaveLength(1);
+    expect(registerCalls[0]).toEqual(["register_note_dock", { label: "note-n1" }]);
   });
 });

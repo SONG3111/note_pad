@@ -39,6 +39,7 @@ const detached = ref<Set<string>>(new Set());
 let unlistenClosed: UnlistenFn | null = null;
 let unlistenQuickAdd: UnlistenFn | null = null;
 let unlistenChanged: UnlistenFn | null = null;
+let unlistenReady: UnlistenFn | null = null;
 
 const isSearching = computed(() => searchQuery.value.trim() !== "");
 // 搜索时也召回已拖出为独立窗口的便签(卡片会打角标,点击聚焦原窗口);
@@ -70,20 +71,71 @@ onMounted(async () => {
     if (e.payload.source === "main") return;
     store.refreshNote(e.payload.id);
   });
+  // 独立便签窗口首帧就绪 → 唤醒 detachNote 的等待(撤占位纸片、完成交接)
+  unlistenReady = await listen<string>("note-window-ready", (e) => {
+    readyWaiters.get(e.payload)?.forEach((fn) => fn());
+    readyWaiters.delete(e.payload);
+  });
 });
 
 onBeforeUnmount(() => {
   unlistenClosed?.();
   unlistenQuickAdd?.();
   unlistenChanged?.();
+  unlistenReady?.();
 });
 
-async function detachNote(id: string, fromDrag: boolean) {
+// 独立便签窗口首帧就绪的等待:NoteWindowApp 挂载时广播 note-window-ready,
+// 主窗口收到后才撤走占位纸片(否则 webview 加载期间落点处会闪出"空洞");
+// 超时兜底:事件丢失时也继续交接,只是少一帧无缝
+const readyWaiters = new Map<string, Array<() => void>>();
+
+function noteWindowReady(id: string, timeout = 3000): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const waiters = readyWaiters.get(id) ?? [];
+    const timer = window.setTimeout(resolve, timeout);
+    waiters.push(() => {
+      window.clearTimeout(timer);
+      resolve();
+    });
+    readyWaiters.set(id, waiters);
+  });
+}
+
+async function detachNote(
+  id: string,
+  grab: { dx: number; dy: number; clientX: number; clientY: number },
+  onSettled?: (failed: boolean) => void,
+) {
   if (editingId.value === id) editingId.value = null;
+  // 光标物理坐标 = 内容区原点 + 视口坐标×缩放,与 ReminderPicker 弹窗锚点同一套换算;
+  // 换算失败传 undefined,由后端回退 cursor_position 实时查询
+  let origin: { cursorX: number; cursorY: number; grabDx: number; grabDy: number } | undefined;
+  if (grab) {
+    try {
+      const win = getCurrentWindow();
+      const [scale, pos] = await Promise.all([win.scaleFactor(), win.innerPosition()]);
+      origin = {
+        cursorX: Math.round(pos.x + grab.clientX * scale),
+        cursorY: Math.round(pos.y + grab.clientY * scale),
+        grabDx: grab.dx,
+        grabDy: grab.dy,
+      };
+    } catch {}
+  }
+  // 先登记就绪等待再建窗,避免窗口挂载早于监听而错过事件
+  const ready = noteWindowReady(id);
   try {
-    await invoke("detach_note_window", { id, drag: fromDrag });
+    await invoke("detach_note_window", { id, origin });
+    await ready;
+    // 先让纸片在落点淡出(与新窗口淡入交叉溶解),淡出播完再摘除主列表卡片,
+    // 否则卡片卸载会带着 Teleport 的纸片瞬间消失,交接处出现"跳帧"
+    onSettled?.(false);
+    await new Promise((r) => window.setTimeout(r, 160));
     detached.value = new Set([...detached.value, id]);
-  } catch {}
+  } catch {
+    onSettled?.(true);
+  }
 }
 
 // 搜索结果中点击已独立的便签:聚焦已有独立窗口(若贴边隐藏则同时唤出),不重复开新窗也不进编辑器
@@ -231,7 +283,7 @@ function closeEditor(isEmpty?: boolean) {
             @toggle-pin="store.togglePin(note.id)"
             @toggle-item="(itemId, checked) => store.updateItem(note.id, itemId, { checked })"
             @remove-item="(itemId) => store.removeItem(note.id, itemId)"
-            @detach="(fromDrag) => detachNote(note.id, fromDrag)"
+            @detach="(grab, onSettled) => detachNote(note.id, grab, onSettled)"
           />
           <Teleport to="body">
             <NoteEditor
