@@ -19,17 +19,6 @@ const appWindow = getCurrentWindow();
 const label = appWindow.label;
 const noteId = label.replace(/^note-/, "");
 
-// 拖出/按钮脱离的入场:窗口以 hidden 创建(见后端 detach_note_window),首帧就绪后
-// 本窗口 show() 并做一次极轻淡入——主窗口纸片飞行的末态即本窗口的初始态,
-// 不再做 scale pop,避免"两段动画拼接"的跳跃感。减少动效偏好下直接显示不淡入
-const detachEntry: boolean = (() => {
-  const q = new URLSearchParams(window.location.search);
-  if (q.get("detach") !== "1") return false;
-  return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-})();
-/** 淡入开关:false=透明(入场前),true=渐入 */
-const entered = ref(false);
-
 const store = useNotesStore();
 const note = ref<NoteWithItems | null>(null);
 const title = ref("");
@@ -43,6 +32,9 @@ const missing = ref(false);
 const scrollAreaRef = ref<HTMLElement | null>(null);
 let unlistenChanged: UnlistenFn | null = null;
 let unlistenClose: UnlistenFn | null = null;
+// 停靠注册监听的注销句柄:清理必须挂在 setup 作用域的 onBeforeUnmount 上——
+// 在异步 onMounted 的 await 之后注册生命周期钩子时组件实例已失联,钩子永远不会执行
+let unlistenMovedDock: UnlistenFn | null = null;
 
 onMounted(async () => {
   const loaded = await store.loadNote(noteId);
@@ -52,17 +44,14 @@ onMounted(async () => {
     applyLoaded(loaded);
   }
 
-  // 窗口隐身创建:内容首帧就绪后才显示并聚焦,与主窗口纸片交接同帧发生;
-  // 显示后下一帧再翻 entered,保证淡入从 opacity 0 起步而不是跳变
+  // 窗口隐身创建:等内容提交且首帧真正绘制完成再显示。此前 applyLoaded 一返回
+  // 就 show(),DOM 尚未提交、webview 尚未合成首帧,窗口会先以空白态闪现;
+  // nextTick + 双 rAF = 一帧提交样式、一帧完成合成,show 时像素已就位,无白闪。
+  // 窗口首帧即最终形态、不做淡入——交接只留主窗口"纸片淡出"一个事件
+  await nextTick();
+  await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
   await appWindow.show().catch(() => {});
   await appWindow.setFocus().catch(() => {});
-  if (detachEntry) {
-    requestAnimationFrame(() => {
-      entered.value = true;
-    });
-  } else {
-    entered.value = true;
-  }
 
   // 首帧就绪:通知主窗口撤走拖出动画的占位纸片,完成"纸片→窗口"交接
   emit("note-window-ready", noteId).catch(() => {});
@@ -70,12 +59,11 @@ onMounted(async () => {
   // 首次被用户拖动才注册进贴边停靠管理:新建落点可能在屏幕边缘附近,
   // 立即注册会被 dock 的"边缘停留即吸附"当场把窗口贴边隐藏
   let dockRegistered = false;
-  const unlistenMoved = await appWindow.onMoved(() => {
+  unlistenMovedDock = await appWindow.onMoved(() => {
     if (dockRegistered) return;
     dockRegistered = true;
     invoke("register_note_dock", { label }).catch(() => {});
   });
-  onBeforeUnmount(() => unlistenMoved());
 
   // 其他窗口修改了这条便签 → 同步到本窗口(本地有未保存修改时以本窗口为准);
   // 本窗口发出的变更已本地应用,跳过回拉以减少 IPC 与数据库压力。
@@ -280,6 +268,7 @@ onBeforeUnmount(() => {
   flushSave();
   unlistenChanged?.();
   unlistenClose?.();
+  unlistenMovedDock?.();
 });
 
 const isTodo = computed(() => note.value?.type === "todo");
@@ -295,11 +284,7 @@ watch(appLocale, () => {
 </script>
 
 <template>
-  <div
-    class="nwin"
-    :class="{ 'nwin-pre': detachEntry && !entered, 'nwin-in': detachEntry && entered }"
-    :style="{ '--card-color': mapCardColor(color) }"
-  >
+  <div class="nwin" :style="{ '--card-color': mapCardColor(color) }">
     <header class="bar" data-tauri-drag-region>
       <span class="dot" data-tauri-drag-region></span>
       <div class="tools">
@@ -424,15 +409,8 @@ body {
     inset 0 0 0 1px rgba(94, 76, 52, 0.08),
     0 10px 30px -10px rgba(94, 76, 52, 0.45);
 }
-/* 拖出入场:主窗口纸片飞行的末态 = 本窗口初始态(位置/尺寸由后端落点公式保证),
-   因此入场只做一次极轻淡入与纸片的淡出交叉溶解,交接处无可感知边界;
-   不再做 scale pop——那是"第二段动画",会与纸片飞行打架 */
-.nwin-pre {
-  opacity: 0;
-}
-.nwin-in {
-  transition: opacity 0.14s var(--ease-out);
-}
+/* 拖出入场无独立动画:窗口等首帧绘制完成才 show(见 onMounted),
+   出现即最终形态;交接只剩主窗口纸片的淡出,不做第二套动画 */
 .bar {
   flex: none;
   display: flex;

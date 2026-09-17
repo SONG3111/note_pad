@@ -1,4 +1,4 @@
-import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { mount, flushPromises, enableAutoUnmount } from "@vue/test-utils";
 import { createPinia } from "pinia";
 import NoteWindowApp from "../NoteWindowApp.vue";
@@ -25,11 +25,14 @@ const shared = vi.hoisted(() => {
     invokeMock: vi.fn(),
     celebrateMock: vi.fn(),
     destroyMock: vi.fn(),
+    showMock: vi.fn(),
     closeHandler: null as CloseHandler | null,
     changedHandler: null as ChangedHandler | null,
     // 真实 Tauri 支持同一窗口多个 onMoved 监听(NoteWindowApp 的停靠注册、
     // ReminderPicker 的关弹窗清扫各自注册),mock 用数组完整建模
     movedHandlers: [] as MovedHandler[],
+    // 已落定的 onMoved 注销句柄被调用的次数(卸载清理回归用)
+    movedUnlistenCalls: 0,
   };
 });
 
@@ -39,8 +42,8 @@ vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
     label: "note-n1",
     setTitle: () => Promise.resolve(),
-    // 窗口隐身创建,首帧就绪后由前端 show+setFocus(见 NoteWindowApp onMounted)
-    show: () => Promise.resolve(),
+    // 窗口隐身创建,首帧绘制(nextTick+双 rAF)后才由前端 show+setFocus(见 onMounted)
+    show: (...args: unknown[]) => shared.showMock(...args),
     setFocus: () => Promise.resolve(),
     destroy: shared.destroyMock,
     onCloseRequested: async (h: CloseHandler) => {
@@ -53,7 +56,9 @@ vi.mock("@tauri-apps/api/window", () => ({
     outerPosition: () => Promise.resolve({ x: 0, y: 0 }),
     onMoved: async (h: MovedHandler) => {
       shared.movedHandlers.push(h);
-      return () => {};
+      return () => {
+        shared.movedUnlistenCalls += 1;
+      };
     },
   }),
 }));
@@ -86,6 +91,14 @@ function mountWindow() {
   return mount(NoteWindowApp, { global: { plugins: [i18n, createPinia()] } });
 }
 
+// 双 rAF 桩:onMounted 等"首帧绘制"(nextTick+双 rAF)后才 show 并注册
+// notes-changed/onCloseRequested/onMoved 监听,真实环境的 rAF 是定时器回调,
+// flushPromises 等不到——桩成微任务回调,链路在 flushPromises 内确定性完成,
+// 也避免挂载残留到后续用例。计数供入场用例断言 show 前已经过的渲染帧数
+let rafCount = 0;
+let rafAtShow = -1;
+let rafSpy: MockInstance | undefined;
+
 beforeEach(() => {
   shared.invokeMock.mockReset().mockImplementation((cmd: string) => {
     if (cmd === "get_note") return Promise.resolve(makeNote());
@@ -93,10 +106,29 @@ beforeEach(() => {
   });
   shared.celebrateMock.mockReset();
   shared.destroyMock.mockReset().mockResolvedValue(undefined);
+  shared.showMock.mockReset().mockResolvedValue(undefined);
   shared.closeHandler = null;
   shared.changedHandler = null;
   shared.movedHandlers = [];
+  shared.movedUnlistenCalls = 0;
   i18n.global.locale.value = "zh-CN";
+  rafCount = 0;
+  rafAtShow = -1;
+  rafSpy = vi
+    .spyOn(window, "requestAnimationFrame")
+    .mockImplementation((cb: FrameRequestCallback) => {
+      rafCount += 1;
+      queueMicrotask(() => cb(performance.now()));
+      return rafCount;
+    });
+  shared.showMock.mockImplementation(() => {
+    rafAtShow = rafCount;
+    return Promise.resolve();
+  });
+});
+
+afterEach(() => {
+  rafSpy?.mockRestore();
 });
 
 describe("NoteWindowApp 保存与跨窗口同步", () => {
@@ -194,30 +226,16 @@ describe("NoteWindowApp 待办文本失焦", () => {
   });
 });
 
-describe("NoteWindowApp 拖出入场动画", () => {
-  it("带 detach 查询参数:先透明占位,首帧后翻为淡入", async () => {
-    window.history.replaceState(null, "", "/?detach=1");
-    try {
-      const wrapper = mountWindow();
-      await flushPromises();
-      const nwin = wrapper.find(".nwin");
-      // show 后的首个 rAF 才翻 entered:在此之前保持 pre(透明),避免淡入从跳变起步
-      expect(nwin.classes()).toContain("nwin-pre");
-      await new Promise((r) => requestAnimationFrame(r));
-      await flushPromises();
-      expect(nwin.classes()).toContain("nwin-in");
-      expect(nwin.classes()).not.toContain("nwin-pre");
-    } finally {
-      window.history.replaceState(null, "", "/");
-    }
-  });
-
-  it("无 detach 参数(普通启动)不播放入场动画", async () => {
+describe("NoteWindowApp 拖出入场", () => {
+  it("窗口等首帧绘制完成(双 rAF)才 show,且不再有整窗透明占位/淡入", async () => {
     const wrapper = mountWindow();
     await flushPromises();
-    const nwin = wrapper.find(".nwin");
-    expect(nwin.classes()).not.toContain("nwin-in");
-    expect(nwin.classes()).not.toContain("nwin-pre");
+    expect(shared.showMock).toHaveBeenCalledTimes(1);
+    // 白闪回归:此前 applyLoaded 一返回就 show(DOM 未提交、首帧未合成),
+    // 窗口先以空白态闪现;现在 show 前必须经过 nextTick + 双渲染帧
+    expect(rafAtShow).toBeGreaterThanOrEqual(2);
+    // 交接只留主窗口纸片淡出一个事件,窗口自身无入场类
+    expect(wrapper.find(".nwin").classes().join(" ")).not.toMatch(/nwin-pre|nwin-in/);
   });
 });
 
@@ -235,5 +253,27 @@ describe("NoteWindowApp 停靠注册", () => {
     const registerCalls = shared.invokeMock.mock.calls.filter(([c]) => c === "register_note_dock");
     expect(registerCalls).toHaveLength(1);
     expect(registerCalls[0]).toEqual(["register_note_dock", { label: "note-n1" }]);
+  });
+
+  it("卸载时注销全部 onMoved 监听,且异步挂载后不再触发 Vue 生命周期警告", async () => {
+    // 回归:清理钩子曾写在异步 onMounted 的 await 之后,组件实例已失联,
+    // 钩子永远不会注册——监听器从不注销,且每次挂载都报
+    // "onBeforeUnmount is called when there is no active component instance" 警告
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const wrapper = mountWindow();
+      await flushPromises();
+      // 挂载完成:停靠注册(NoteWindowApp)+ 弹窗清扫(ReminderPicker)两个监听都已落定
+      expect(shared.movedHandlers.length).toBe(2);
+
+      wrapper.unmount();
+      // 两个监听都必须被注销:停靠注册由组件卸载钩子、清扫由 ReminderPicker 卸载钩子
+      expect(shared.movedUnlistenCalls).toBe(2);
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining("onBeforeUnmount is called"),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

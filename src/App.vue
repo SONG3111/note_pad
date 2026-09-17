@@ -551,6 +551,11 @@ body,
   flex-direction: column;
   align-items: flex-end;
   gap: 10px;
+  /* 收起时上方仍躺着两枚 opacity:0 的选项签(占布局),透明容器被撑高到
+     按钮上方约 90px;若拦截指针会挡住下方卡片的 hover(右上角操作按钮组
+     不出现)。容器整体 click-through,交互只留给子元素自身(展开时
+     .fab-opt 经 .open 规则恢复 auto) */
+  pointer-events: none;
 }
 /* 印章式添加按钮: 暖纸底 + 手绘虚线圈 + 小星星贴片, 按下有轻微弹性 */
 .fab-main {
@@ -572,6 +577,8 @@ body,
     background-color 0.15s var(--ease-out);
   transform-origin: bottom right;
   position: relative;
+  /* pointer-events 会继承:容器已设 none,按钮自身须恢复交互 */
+  pointer-events: auto;
 }
 .fab-main::before {
   content: "";

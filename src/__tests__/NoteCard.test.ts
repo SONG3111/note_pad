@@ -23,6 +23,15 @@ enableAutoUnmount(afterEach);
 
 vi.mock("../celebrate", () => ({ celebrateAllDone: vi.fn() }));
 
+// 窗口变换 mock:flyToWindow 用它换算飞入落点(scale=1,窗口原点 1000,500),
+// 使撕离链路能走完 IPC+双帧到达 fly 态,落点断言才有确定值
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    scaleFactor: () => Promise.resolve(1),
+    innerPosition: () => Promise.resolve({ x: 1000, y: 500 }),
+  }),
+}));
+
 const RECT = { left: 200, top: 200, width: 300, height: 200, right: 500, bottom: 400 };
 
 function makeNote(): NoteWithItems {
@@ -207,7 +216,28 @@ describe("NoteCard 四段式撕纸手势", () => {
     const curl = ghost!.querySelector<HTMLElement>(".g-curl");
     expect(curl).not.toBeNull();
     expect(curl!.style.width).toBe("28px");
-    // 建窗交接前纸片保持在场(jsdom 换算不出飞入目标,原地等待即可)
+    // 建窗交接前纸片保持在场(fly 切换在双帧之后,此处仍为 follow 态)
+  });
+
+  it("撕离起飞:纸片全程保持卡片尺寸,只位移到窗口纸片原点(高度瞬跳回归)", async () => {
+    const wrapper = mountCard();
+    const card = wrapper.find(".card");
+    pointer("pointerdown", 300, 300, card.element);
+    // 向下揭 50px:立即撕离;flyToWindow 换算(scale=1,窗口原点 1000,500,
+    // 抓取偏移 100,100)得窗口左上角 (200,250),加 5px 阴影边距 → 纸片落点 (205,255)
+    pointer("pointermove", 300, 350, card.element);
+    await wrapper.vm.$nextTick();
+    // fly 态在 IPC + 双渲染帧后才切换:等真实定时器走完该链路
+    await new Promise((r) => setTimeout(r, 60));
+
+    const ghost = ghostEl()!;
+    expect(ghost.classList.contains("mode-fly")).toBe(true);
+    // 回归:fly 态不得改宽高——此前纸片会被撑到 360×380 窗口尺寸,
+    // 侧向拉扯时高度增量集中在头几帧,看起来就是"脱落瞬间突然变高"
+    expect(ghost.style.width).toBe("300px");
+    expect(ghost.style.height).toBe("200px");
+    expect(ghost.style.transform).toBe("translate(5px, 55px)");
+    expect(ghost.style.getPropertyValue("--fly-dur")).toBe("160ms");
   });
 
   it("按钮上按下不启动手势", async () => {

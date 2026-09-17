@@ -338,13 +338,14 @@ function onPointerUp(e: PointerEvent) {
   document.body.style.userSelect = "";
 }
 
-/** 建窗交接成功:纸片在落点轻轻淡出,与新窗口的淡入交叉溶解,而非瞬间消失 */
+/** 建窗交接成功:窗口已一次性出现在落点,纸片在其上淡出隐去——
+ * 淡出略长(200ms)以掩蔽纸片与窗口的尺寸差,交接只有这一个事件 */
 function handoffFade() {
   if (!ghost.value) return;
   ghost.value = { ...ghost.value, mode: "fade" };
   window.setTimeout(() => {
     if (ghost.value?.mode === "fade") ghost.value = null;
-  }, reduceMotion ? 0 : 150);
+  }, reduceMotion ? 0 : 220);
 }
 
 function onPointerCancel() {
@@ -374,27 +375,29 @@ function springBack() {
 async function flyToWindow(grab: DetachGrab) {
   const g = ghost.value;
   if (!g) return;
-  // 目标 = 独立窗口左上角(本窗口 viewport CSS px),与后端 detach_position 同一公式
+  // 目标 = 独立窗口纸片原点 = 窗口左上角 + 5px 阴影边距(.nwin margin),
+  // 换算与后端 detach_position 同一公式(pos.x 相消);纸片全程保持卡片
+  // 尺寸,交接只靠位置对齐——拖到哪,窗口的纸就在哪
   try {
     const win = getCurrentWindow();
     const [scale, pos] = await Promise.all([win.scaleFactor(), win.innerPosition()]);
     if (typeof scale !== "number" || !pos) return;
     const gx = Math.min(Math.max(grab.dx, GRAB_MARGIN_X), NOTE_WINDOW_W - GRAB_MARGIN_X);
     const gy = Math.min(Math.max(grab.dy, GRAB_MARGIN_Y), NOTE_WINDOW_H - GRAB_MARGIN_Y);
-    const tx = (pos.x + grab.clientX * scale - gx * scale - pos.x) / scale;
-    const ty = (pos.y + grab.clientY * scale - gy * scale - pos.y) / scale;
+    const tx = (pos.x + grab.clientX * scale - gx * scale - pos.x) / scale + PAPER_INSET;
+    const ty = (pos.y + grab.clientY * scale - gy * scale - pos.y) / scale + PAPER_INSET;
     if (!Number.isFinite(tx) || !Number.isFinite(ty)) return;
     // 飞行时长按距离自适应:拖 50px 与拖到屏幕另一头不该是同一速度,
     // 近距离轻快、远距离有"抛出去"的行程感,但不拖沓(上限 380ms)
     const dist = Math.hypot(tx - (g.x + g.dx), ty - (g.y + g.dy));
     const dur = reduceMotion ? 0 : Math.round(Math.min(380, Math.max(160, dist * 0.35)));
-    // 等两个渲染帧再切 fly:IPC 常在同帧内返回,尺寸变化若与元素插入
-    // 合并进同一次样式结算,过渡不会触发——高度会从卡片尺寸瞬跳到窗口尺寸
+    // 等两个渲染帧再切 fly:插入与模式切换若合并进同一次样式结算,
+    // 过渡不会触发,纸片会从原位瞬移——飞行必须从已绘制的前帧起步
     await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
     // 期间纸片被换掉(新手势/交接已处理)则不再更新
     if (ghost.value !== g) return;
-    // 起飞:胶带崩脱外翻,卷角在飞行中收拢,纸片飞向落点
-    ghost.value = { ...g, mode: "fly", dx: tx - g.x, dy: ty - g.y, curlSize: 0, tapeOff: true, w: NOTE_WINDOW_W, h: NOTE_WINDOW_H, dur };
+    // 起飞:胶带崩脱外翻,卷角在飞行中收拢,纸片按原尺寸飞向落点
+    ghost.value = { ...g, mode: "fly", dx: tx - g.x, dy: ty - g.y, curlSize: 0, tapeOff: true, dur };
   } catch {
     // 窗口变换不可用:纸片原地等交接,不做飞入
   }
@@ -404,6 +407,8 @@ const GRAB_MARGIN_X = 24;
 const GRAB_MARGIN_Y = 20;
 const NOTE_WINDOW_W = 360;
 const NOTE_WINDOW_H = 380;
+/** 独立窗口四周 5px 透明边距(.nwin margin),纸片落点须对齐窗口内的纸,而非窗框 */
+const PAPER_INSET = 5;
 
 const ghostStyle = computed(() => {
   const g = ghost.value;
@@ -1029,14 +1034,13 @@ onBeforeUnmount(() => window.clearTimeout(popTimer));
 .detach-ghost.mode-back {
   transition: transform 0.24s var(--ease-spring);
 }
-/* fly:时长随飞行距离自适应(--fly-dur 由 JS 按距离算出);
-   飞行结束后(webview 建窗加载期)进入呼吸态——阴影极轻脉动,
-   把"等待新窗口"变成"纸片被指尖按在落点上等待松手"的有意停顿 */
+/* fly:时长随飞行距离自适应(--fly-dur 由 JS 按距离算出)。
+   只过渡 transform——纸片全程保持卡片尺寸,不缩放不变形,
+   与窗口的尺寸差由交接淡出掩蔽。飞行结束后(webview 建窗加载期)
+   进入呼吸态——阴影极轻脉动,把"等待新窗口"变成
+   "纸片被指尖按在落点上等待松手"的有意停顿 */
 .detach-ghost.mode-fly {
-  transition:
-    transform var(--fly-dur, 180ms) cubic-bezier(0.22, 1, 0.36, 1),
-    width var(--fly-dur, 180ms) cubic-bezier(0.22, 1, 0.36, 1),
-    height var(--fly-dur, 180ms) cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform var(--fly-dur, 180ms) cubic-bezier(0.22, 1, 0.36, 1);
 }
 @media (prefers-reduced-motion: no-preference) {
   .detach-ghost.mode-fly .g-body {
@@ -1055,9 +1059,9 @@ onBeforeUnmount(() => window.clearTimeout(popTimer));
       0 22px 40px rgba(94, 76, 52, 0.23);
   }
 }
-/* fade:交接成功,纸片在落点淡出,与新窗口的淡入交叉溶解 */
+/* fade:交接成功,窗口已就位,纸片在落点淡出隐去 */
 .detach-ghost.mode-fade {
-  transition: opacity 0.14s var(--ease-out);
+  transition: opacity 0.2s var(--ease-out);
   opacity: 0;
 }
 </style>
