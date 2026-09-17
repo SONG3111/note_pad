@@ -7,7 +7,7 @@ import { mapCardColor } from "../colors";
 import { appLocale } from "../composables/useLocale";
 import TodoCheckbox from "./TodoCheckbox.vue";
 import { useNotesStore } from "../stores/notes";
-import { playTearSound } from "../sound";
+import { playTapeSnapSound } from "../sound";
 
 const { t } = useI18n();
 
@@ -308,7 +308,7 @@ function onPointerMove(e: PointerEvent) {
   if ((detach || peelOff) && dist >= DETACH_COMMIT) {
     // ③ 折痕/折面扫到胶带,或向下揭纸:整张纸被撕离,起飞成独立窗口(无需等松手)
     spawnGhost();
-    playTearSound();
+    playTapeSnapSound();
     const grab: DetachGrab = {
       dx: drag.grabX,
       dy: drag.grabY,
@@ -431,7 +431,7 @@ function detachViaButton(e: MouseEvent) {
   const rect = card.getBoundingClientRect();
   const grabX = e.clientX - rect.left;
   const grabY = e.clientY - rect.top;
-  playTearSound();
+  playTapeSnapSound();
   ghost.value = {
     html: card.innerHTML,
     x: rect.left,
