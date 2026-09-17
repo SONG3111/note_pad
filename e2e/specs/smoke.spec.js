@@ -13,8 +13,9 @@ describe("灵感便签 冒烟", () => {
     await $(".search").setValue(TITLE);
     // 循环删除残留(上次运行中断时可能留下未清理的卡),最多 5 张
     for (let i = 0; i < 5; i++) {
+      if (!(await $(".card").isExisting())) break;
+      const before = (await $$(".card")).length;
       const leftover = await $(".card");
-      if (!(await leftover.isExisting())) break;
       await leftover.moveTo();
       await leftover.$(".icon-btn.danger").click();
       const confirm = await $(".dialog .d-btn.danger");
@@ -22,6 +23,12 @@ describe("灵感便签 冒烟", () => {
       await confirm.click();
       // 等 confirmId 复位、弹窗关闭再继续下一轮
       await $(".dialog").waitForExist({ timeout: 5000, reverse: true });
+      // 删除触发的 notes-changed 回拉会重渲染列表,旧元素句柄随之失效:
+      // 必须等卡片数真正减少后重查,否则 stale element 会让下一轮报 element wasn't found
+      await browser.waitUntil(
+        async () => (await $$(".card")).length < before,
+        { timeout: 5000, timeoutMsg: "残留卡片删除未生效" }
+      );
     }
     await $(".search").setValue("");
   });
@@ -47,8 +54,12 @@ describe("灵感便签 冒烟", () => {
       await $(".new-item").setValue(text);
       await browser.keys("Enter");
     }
-    const rows = await $$(".editor .item-row");
-    assert.equal(rows.length, 2);
+    // 待办项经 IPC 异步入库后才进列表:立即断言会与第二次添加赛跑,
+    // 曾致偶发 1 !== 2 且编辑器未关闭让后续用例被 overlay 拦截(级联失败)
+    await browser.waitUntil(
+      async () => (await $$(".editor .item-row")).length === 2,
+      { timeout: 5000, timeoutMsg: "两条待办未全部入库" }
+    );
 
     await $(".tool-btn.close").click();
     await $(".editor").waitForExist({ timeout: 5000, reverse: true });

@@ -50,3 +50,8 @@ skills-lock.json
 .mimosa/
 
 .npm-cache/
+
+# 本地测试产物:Playwright MCP 会话日志/临时脚本、Windows 应用认证工具包报告
+.playwright-mcp/
+scripts/*.xml
+detach-debug.log

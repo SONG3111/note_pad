@@ -42,7 +42,8 @@ if (!window.matchMedia) {
   }));
 }
 
-// sound.ts 在勾选音效里 new AudioContext();jsdom 没有音频设备,给个最小桩
+// sound.ts 在勾选/撕纸音效里 new AudioContext();jsdom 没有音频设备,给个最小桩
+// (振荡器 + 噪声合成两条路径都要能走通:buffer/source/biquad 也补上)
 if (!(window as unknown as { AudioContext?: unknown }).AudioContext) {
   class FakeAudioContext {
     sampleRate = 44100;
@@ -61,6 +62,29 @@ if (!(window as unknown as { AudioContext?: unknown }).AudioContext) {
     createGain() {
       return {
         gain: { value: 0, setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() },
+        connect: vi.fn(),
+      };
+    }
+    createBuffer(channels: number, length: number) {
+      return {
+        length,
+        numberOfChannels: channels,
+        getChannelData: () => new Float32Array(length),
+      };
+    }
+    createBufferSource() {
+      return {
+        buffer: null,
+        connect: vi.fn(),
+        start: vi.fn(),
+        stop: vi.fn(),
+      };
+    }
+    createBiquadFilter() {
+      return {
+        type: "lowpass",
+        Q: { value: 0 },
+        frequency: { value: 0, setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() },
         connect: vi.fn(),
       };
     }

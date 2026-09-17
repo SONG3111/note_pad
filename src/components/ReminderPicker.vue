@@ -93,16 +93,28 @@ async function openPopupWindow() {
 // 便签窗口被拖动时弹窗锚点已失效,立即关闭(拖动期间 onMoved 连续触发,
 // 首次调用销毁弹窗后,后续调用是廉价空扫)
 let unlistenMoved: UnlistenFn | null = null;
+// 注册是异步的:若注销句柄落定前组件已卸载(勾选/删除待办项会即时 v-if 卸载本组件),
+// 落定后必须立即注销,否则监听器悬挂——窗口每次移动都白发一次清扫 IPC,且随切换累积
+let pickerDisposed = false;
 onMounted(() => {
   if (props.mode !== "popup") return;
   getCurrentWindow()
     .onMoved(() => {
       invoke("close_reminder_popups").catch(() => {});
     })
-    .then((fn) => (unlistenMoved = fn))
+    .then((fn) => {
+      if (pickerDisposed) {
+        fn();
+        return;
+      }
+      unlistenMoved = fn;
+    })
     .catch(() => {});
 });
-onBeforeUnmount(() => unlistenMoved?.());
+onBeforeUnmount(() => {
+  pickerDisposed = true;
+  unlistenMoved?.();
+});
 
 function onDocMousedown(e: MouseEvent) {
   if (open.value && rootRef.value && !rootRef.value.contains(e.target as Node)) {

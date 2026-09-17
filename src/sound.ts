@@ -1,5 +1,5 @@
-// 待办勾选音效:Web Audio 实时合成,不打包音频文件。
-// AudioContext 在首次用户点击(即勾选动作本身)时创建,满足浏览器自动播放策略。
+// 手账音效(勾选 / 撕纸手势):Web Audio 实时合成,不打包音频文件。
+// AudioContext 在首次用户交互(勾选 / 拖动本身)时创建,满足浏览器自动播放策略。
 
 let ctx: AudioContext | null = null;
 
@@ -68,35 +68,81 @@ export function playAllDoneSound() {
   } catch {}
 }
 
-/// 撕离:胶带崩脱声——高频噪声急起急收(揭起胶带的"嚓")+
-/// 紧跟一个短促下滑的黏胶"啵",与动画里胶带崩脱的视觉锚点同拍。
-/// 比纸撕声更短更轻:总长约 80ms,峰值 0.08
-export function playTapeSnapSound() {
+// ─── 撕纸手势音效 ───
+// 纸是纤维,折痕/撕裂天然是宽频噪声,振荡器拟不出来——
+// 全部由白噪声 + 滤波实时合成,三个声音对应手势三段:
+// 起折(嚓)→ 撕离(胶带"啪" + 纸"刺啦")→ 平复/落回(嗒)。
+// 音量与勾选音(peak 0.12)同一量级,克制、不抢戏。
+
+/** 白噪声缓冲(单例复用,0.3s 覆盖最长的撕裂尾音) */
+let noiseBuf: AudioBuffer | null = null;
+
+function ensureNoise(ac: AudioContext): AudioBuffer {
+  if (!noiseBuf) {
+    const len = Math.floor(ac.sampleRate * 0.3);
+    noiseBuf = ac.createBuffer(1, len, ac.sampleRate);
+    const data = noiseBuf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+  }
+  return noiseBuf;
+}
+
+/** 一次滤波噪声:频率从 from 指数滑向 to;attack 极短时是"啪"的瞬时起音 */
+function noise(
+  ac: AudioContext,
+  opts: {
+    at: number;
+    dur: number;
+    peak: number;
+    type: BiquadFilterType;
+    from: number;
+    to: number;
+    q?: number;
+    attack?: number;
+  }
+) {
+  const t = ac.currentTime + opts.at;
+  const src = ac.createBufferSource();
+  src.buffer = ensureNoise(ac);
+  const filter = ac.createBiquadFilter();
+  filter.type = opts.type;
+  filter.Q.value = opts.q ?? 0.8;
+  filter.frequency.setValueAtTime(opts.from, t);
+  filter.frequency.exponentialRampToValueAtTime(Math.max(40, opts.to), t + opts.dur);
+  const gain = ac.createGain();
+  const attack = opts.attack ?? 0.006;
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(opts.peak, t + attack);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + opts.dur + 0.025);
+  src.connect(filter).connect(gain).connect(ac.destination);
+  // 随机缓冲起点:同一手势反复听不机械
+  src.start(t, Math.random() * 0.1);
+  src.stop(t + opts.dur + 0.06);
+}
+
+/// 起折:纸面被折起的轻"嚓"——高通噪声快速衰减,轻到近乎触觉反馈;
+/// 折角首次出现时响一次,方向回摆重折不重复响
+export function playFoldCreaseSound() {
   try {
     const ac = ensureCtx();
-    const t = ac.currentTime;
-    // 第一层:高频噪声,揭起胶带的"嚓"——急起急收
-    const dur = 0.06;
-    const buf = ac.createBuffer(1, Math.ceil(ac.sampleRate * dur), ac.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-    const noise = ac.createBufferSource();
-    noise.buffer = buf;
-    const bp = ac.createBiquadFilter();
-    bp.type = "bandpass";
-    bp.Q.value = 1;
-    bp.frequency.setValueAtTime(3200, t);
-    bp.frequency.exponentialRampToValueAtTime(1500, t + dur);
-    const gain = ac.createGain();
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.08, t + 0.004);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    noise.connect(bp).connect(gain).connect(ac.destination);
-    noise.start(t);
-    noise.stop(t + dur);
-    // 第二层:黏胶脱开的"啵"——短促下滑音,落在噪声衰减处
-    blip(ac, { at: 0.045, from: 1500, to: 600, dur: 0.03, peak: 0.07, type: "triangle" });
-  } catch {
-    // 音效非核心功能,音频不可用时静默降级
-  }
+    noise(ac, { at: 0, dur: 0.05, peak: 0.045, type: "highpass", from: 2600, to: 900 });
+  } catch {}
+}
+
+/// 撕离:胶带从纸面崩脱的一记"啪"——瞬时起音的带通噪声向低频快速滑落,
+/// 短促干脆,不带撕裂尾音
+export function playTearOffSound() {
+  try {
+    const ac = ensureCtx();
+    noise(ac, { at: 0, dur: 0.05, peak: 0.2, type: "bandpass", from: 2600, to: 500, q: 0.7, attack: 0.001 });
+  } catch {}
+}
+
+/// 平复/弹回:纸拍回手账面的轻"嗒"——低通噪声 + 低频短音,把手势收住
+export function playPaperSettleSound() {
+  try {
+    const ac = ensureCtx();
+    noise(ac, { at: 0, dur: 0.06, peak: 0.05, type: "lowpass", from: 900, to: 300 });
+    blip(ac, { at: 0, from: 150, to: 95, dur: 0.05, peak: 0.04 });
+  } catch {}
 }

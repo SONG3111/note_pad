@@ -7,7 +7,7 @@ import { mapCardColor } from "../colors";
 import { appLocale } from "../composables/useLocale";
 import TodoCheckbox from "./TodoCheckbox.vue";
 import { useNotesStore } from "../stores/notes";
-import { playTapeSnapSound } from "../sound";
+import { playFoldCreaseSound, playPaperSettleSound, playTearOffSound } from "../sound";
 
 const { t } = useI18n();
 
@@ -26,13 +26,14 @@ const emit = defineEmits<{
 // ─── 拖出为独立窗口:"从手账上撕下便签"手势 ───
 // 胶带(右上角)是锚,全程三段:
 // ① 按住 → 胶带被捏住微弹,卡片绕胶带微翘预告(≤3°);
-// ② 拖动(≥10px) → 原位折角:折痕从被抓角出发、沿"角 → 胶带锚点"方向扫进
-//    (撕裂线向胶带传播),进度 = 拖动在该方向上的投影,拖多深折多深;
+// ② 拖动(≥10px) → 原位折角:折痕过指针等效点、垂直于拖动方向 1:1 跟手扫进
+//    (斜着拖就斜着折),拖多深折多深;
 //    卡片本体保留胶带一侧,被抓一侧沿折痕镜像折回;
-//    折痕越逼近胶带,悬层胶带被拽得越长、绷得越紧,临近极限时高频微颤;
-// ③ 折痕触及胶带 → 胶带崩脱,整张纸从折角状态起飞成独立窗口(无需松手);
+// ③ 折痕线触及胶带(穿过或整体扫过胶带矩形)→ 胶带崩脱,整张纸从折角状态
+//    起飞成独立窗口(无需松手);折面盖过胶带、顺胶带方向下拉都不再提前撕离,
+//    折角必须一路加深到折痕本线碰到右上角胶带,纸才脱落;
 //    松手早于触及 → 折角展开平复,纸贴回手账。
-// 克制原则:折角跟手 1:1 无过渡,卷角 ≤28px。
+// 克制原则:折角跟手 1:1 无过渡,卷角 ≤48px。
 
 interface DetachGrab {
   /** 光标在源卡片内的偏移(CSS px) */
@@ -49,7 +50,7 @@ const FOLLOW_THRESHOLD = 10;
 /** 撕离承诺距离:折痕触及胶带/整卡折尽之外还需拖够这段距离,防垂直轻擦误触 */
 const DETACH_COMMIT = 45;
 /** 卷角边长上限(px) */
-const CURL_MAX = 28;
+const CURL_MAX = 48;
 /** 按住预告角(度) */
 const PRESS_LIFT = 3;
 /** 胶带锚点距卡片右缘的距离(px,与 .card::before 的 right:24px + 半宽 27px 对应) */
@@ -116,6 +117,8 @@ let drag: null | {
   el: HTMLElement;
   /** 手势开始时的内容快照(折角瓣与 ghost 共用,拖拽中内容不会变) */
   html: string;
+  /** 本次手势是否已响过起折音(每次手势只响一次,方向回摆重折不重复响) */
+  creased?: boolean;
 } = null;
 
 /** 抓取点落在哪个象限,折角/卷角就出现在哪个角 */
@@ -168,15 +171,15 @@ const polygonOf = (pts: Array<[number, number]>) =>
  * ② 折痕数学:折痕 = 被抓角 C 与其镜像像 C+2Δ 连线的垂直平分线——
  * 过指针等效点 P = C+Δ、垂直于拖动方向,1:1 跟手扫进(斜着拖就斜着折),
  * 被抓角以 2 倍速翻折到 C+2Δ。卡片本体保留对侧,被抓侧克隆层沿折痕镜像折回。
- * detach = 折痕线穿过胶带矩形(斜向拖,折痕先到),或折面盖过胶带锚点
- * (横向拖,折面先到——胶带与抓取点等高时的自然拖法),或整卡折尽。
+ * detach = 折痕线触及胶带(正穿过胶带矩形,或已整体扫过——快速拖动
+ * 一步跨过穿越窗口时补判),或整卡折尽;折面盖过胶带不算,
+ * 必须拖到折痕本线碰到胶带,折角范围因此更深。
  */
 function tearState(corner: Corner, dx: number, dy: number) {
   if (!drag) return { fold: null, detach: false };
   const w = drag.rect.width;
   const h = drag.rect.height;
   const C = cornerPos(corner, w, h);
-  const T: [number, number] = [w - TAPE_INSET_X, 0];
   const len = Math.hypot(dx, dy);
   if (len < 0.3) return { fold: null, detach: false };
   const u: [number, number] = [dx / len, dy / len];
@@ -185,17 +188,15 @@ function tearState(corner: Corner, dx: number, dy: number) {
   const P: [number, number] = [C[0] + dx, C[1] + dy];
   const flap = clipHalfPlane(w, h, P, [-u[0], -u[1]]); // 被抓侧(折起)
   const base = clipHalfPlane(w, h, P, u); // 对侧(保留)
-  // 胶带锚点在拖动方向上的投影:折进距离 k 过半(k ≥ tT/2)时,
-  // 锚点的镜像像翻回卡内——折面已经盖过胶带(横向拖时折面先于折痕抵达)
-  const tT = (T[0] - C[0]) * u[0] + (T[1] - C[1]) * u[1];
-  const rT: [number, number] = [T[0] - 2 * (tT - len) * u[0], T[1] - 2 * (tT - len) * u[1]];
-  const flapCoversTape =
-    tT > 0 && 2 * len >= tT && rT[0] >= 0 && rT[0] <= w && rT[1] >= 0 && rT[1] <= h;
-  // 折痕线穿过胶带矩形:胶带四角对折痕线的符号距离异号(斜向拖,折痕先到)
+  // 折痕触及胶带:胶带四角对折痕线的符号距离异号 = 折痕正穿过胶带矩形;
+  // 补判"已扫过"——胶带曾位于折痕行进前方(sd+len>0,即起步时在保留侧),
+  // 如今整体落到被抓侧(maxSd<0),快速拖动跨过穿越窗口也不漏判
   const sd = tapeCorners(w).map(([x, y]) => (x - P[0]) * u[0] + (y - P[1]) * u[1]);
-  const touchesTape = Math.min(...sd) <= 0 && Math.max(...sd) >= 0;
-  // 整卡折尽:保留侧被折完(所有角都在被抓侧)
-  const detach = flapCoversTape || touchesTape || base.length < 3;
+  const minSd = Math.min(...sd);
+  const maxSd = Math.max(...sd);
+  const tapeReached = (minSd <= 0 && maxSd >= 0) || (maxSd < 0 && maxSd + len > 0);
+  // 撕离只认折痕:折痕触及/扫过胶带,或整卡折尽(保留侧被折完)
+  const detach = tapeReached || base.length < 3;
   if (flap.length < 3) return { fold: null, detach };
   // 镜像反射矩阵:折痕为轴的反射 x' = x − 2((x−P)·u)u
   const mA = 1 - 2 * u[0] * u[0];
@@ -245,6 +246,7 @@ function spawnGhost() {
 function unfoldSettle() {
   const f = fold.value;
   if (!f || f.settle) return;
+  playPaperSettleSound(); // 纸拍回纸面的轻"嗒",收住手势
   if (reduceMotion) {
     fold.value = null;
     return;
@@ -302,13 +304,11 @@ function onPointerMove(e: PointerEvent) {
   pressTilt.value = null;
   const corner = cornerOf(drag.grabX, drag.grabY, drag.rect.width, drag.rect.height);
   const { fold: next, detach } = tearState(corner, dx, dy);
-  // 向下拉扯(方向足够向下)= 顺着胶带粘着方向把整张纸揭下来:立即撕离,
-  // 不必等折痕/折面扫到胶带——向下是"揭",朝胶带折是"撕",两条路都通
-  const peelOff = dy >= 0.707 * dist;
-  if ((detach || peelOff) && dist >= DETACH_COMMIT) {
-    // ③ 折痕/折面扫到胶带,或向下揭纸:整张纸被撕离,起飞成独立窗口(无需等松手)
+  if (detach && dist >= DETACH_COMMIT) {
+    // ③ 折痕触及/扫过胶带,或整卡折尽:整张纸被撕离,起飞成独立窗口(无需等松手)
+    playTearOffSound(); // 撕离主音:胶带"啪" + 纸"刺啦",与胶带崩脱同帧
+    if (next) fold.value = next; // 纸片卷角衔接当前折痕腿长,而非上一帧
     spawnGhost();
-    playTapeSnapSound();
     const grab: DetachGrab = {
       dx: drag.grabX,
       dy: drag.grabY,
@@ -325,8 +325,14 @@ function onPointerMove(e: PointerEvent) {
     return;
   }
   const f = reduceMotion ? null : next;
-  if (f) fold.value = f;
-  else if (fold.value && !fold.value.settle) fold.value = null;
+  if (f) {
+    // 折角首次出现:纸面起折的轻"嚓"(每次手势只响一次)
+    if (!drag.creased) {
+      drag.creased = true;
+      playFoldCreaseSound();
+    }
+    fold.value = f;
+  } else if (fold.value && !fold.value.settle) fold.value = null;
 }
 
 function onPointerUp(e: PointerEvent) {
@@ -367,6 +373,7 @@ function springBack() {
   document.body.style.userSelect = "";
   if (!ghost.value) return;
   // 建窗失败:纸片弹回原位,占位还原为卡片
+  playPaperSettleSound(); // 落回手账面的轻"嗒"
   ghost.value = { ...ghost.value, dx: 0, dy: 0, curlSize: 0, tapeOff: false, mode: "back" };
   // 回弹落定后摘除纸片,占位还原为卡片
   window.setTimeout(() => {
@@ -427,11 +434,11 @@ const ghostStyle = computed(() => {
 
 /** 按钮路径同样走"纸片飞向落点"链路:卡片原位让位,纸片从按钮处起飞 */
 function detachViaButton(e: MouseEvent) {
+  playTearOffSound(); // 与手势撕离同一主音
   const card = (e.currentTarget as HTMLElement).closest(".card") as HTMLElement;
   const rect = card.getBoundingClientRect();
   const grabX = e.clientX - rect.left;
   const grabY = e.clientY - rect.top;
-  playTapeSnapSound();
   ghost.value = {
     html: card.innerHTML,
     x: rect.left,

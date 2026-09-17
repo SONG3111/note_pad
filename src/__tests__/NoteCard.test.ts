@@ -11,21 +11,31 @@ import type { NoteWithItems } from "../types";
 //    (斜着拖就斜着折);卡片本体沿折痕裁开保留对侧,被抓侧角瓣
 //    (Teleport 到 body 的实色纸背,不带字)镜像折回;
 //    全程纸不离账,不产生跟手纸片、不变占位;
-// 3) 三条撕离路,拖动 ≥45px 即在拖动中自动撕离(纸片从折角状态起飞,
-//    卷角 = 拖动距离截断衔接,发出 detach 载荷建窗):
-//    a. 折痕线穿过胶带矩形(斜向拖,折痕先到);
-//    b. 折面盖过胶带锚点(横向拖,折面先到);
-//    c. 向下拉扯(顺胶带粘着方向揭纸,立即撕离);
-//    松手早于撕离:折角展开平复,无 detach。
+//    折角首次出现播起折音"嚓",每次手势只响一次;
+// 3) 撕离只认折痕:拖动 ≥45px 且折痕线触及胶带(正穿过胶带矩形,
+//    或已整体扫过——快速拖动跨过穿越窗口),或整卡折尽,
+//    才在拖动中自动撕离(纸片从折角状态起飞,卷角 = 当前折痕腿长
+//    截断衔接,发出 detach 载荷建窗),同时播撕离音"啪+刺啦";
+//    折面盖过胶带、向下拉扯都不再提前撕离——从上半卡向下拉时,
+//    水平折痕扫过胶带所在的顶缘带(胶带 y∈[-7,8])同样算触及;
+//    松手早于撕离:折角展开平复(播落回音"嗒"),无 detach。
 // jsdom 无布局:用统一的 mock rect(200,200,300,200),抓取点据此断言。
 
 enableAutoUnmount(afterEach);
 
 vi.mock("../celebrate", () => ({ celebrateAllDone: vi.fn() }));
 
-// 撕离音效按约定 mock 掉,用例只断言"撕离响一声崩脱音、折叠不响"的触发时机
-const { snapSoundMock } = vi.hoisted(() => ({ snapSoundMock: vi.fn() }));
-vi.mock("../sound", () => ({ playTapeSnapSound: snapSoundMock }));
+// 撕纸音效桩:只断言触发时机,合成细节属于 sound.ts 自己的职责
+const { creaseSoundMock, tearSoundMock, settleSoundMock } = vi.hoisted(() => ({
+  creaseSoundMock: vi.fn(),
+  tearSoundMock: vi.fn(),
+  settleSoundMock: vi.fn(),
+}));
+vi.mock("../sound", () => ({
+  playFoldCreaseSound: creaseSoundMock,
+  playTearOffSound: tearSoundMock,
+  playPaperSettleSound: settleSoundMock,
+}));
 
 // 窗口变换 mock:flyToWindow 用它换算飞入落点(scale=1,窗口原点 1000,500),
 // 使撕离链路能走完 IPC+双帧到达 fly 态,落点断言才有确定值
@@ -79,10 +89,12 @@ function wrapEl(): HTMLElement | null {
 
 beforeEach(() => {
   i18n.global.locale.value = "zh-CN";
-  snapSoundMock.mockClear();
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
     RECT as DOMRect,
   );
+  creaseSoundMock.mockClear();
+  tearSoundMock.mockClear();
+  settleSoundMock.mockClear();
 });
 
 afterEach(() => {
@@ -98,7 +110,10 @@ describe("NoteCard 四段式撕纸手势", () => {
     expect(ghostEl()).toBeNull();
     expect(flapEl()).toBeNull();
     expect(wrapper.emitted("detach")).toBeUndefined();
-    expect(snapSoundMock).not.toHaveBeenCalled();
+    // 只是按住,还没折、没撕:全程静音
+    expect(creaseSoundMock).not.toHaveBeenCalled();
+    expect(tearSoundMock).not.toHaveBeenCalled();
+    expect(settleSoundMock).not.toHaveBeenCalled();
   });
 
   it("拖动(≥10px):折痕垂直于拖动方向斜着扫进,角瓣为实色纸背镜像折回,胶带被拉扯", async () => {
@@ -128,7 +143,9 @@ describe("NoteCard 四段式撕纸手势", () => {
     expect(ghostEl()).toBeNull();
     expect(card.classes()).not.toContain("placeholder");
     expect(wrapper.emitted("detach")).toBeUndefined();
-    expect(snapSoundMock).not.toHaveBeenCalled();
+    // 折角首次出现播起折音,每次手势只响一次;未撕离不播撕离音
+    expect(creaseSoundMock).toHaveBeenCalledTimes(1);
+    expect(tearSoundMock).not.toHaveBeenCalled();
   });
 
   it("折角后松手(折痕未及胶带):折角展开平复(fold-settle),无 detach", async () => {
@@ -141,23 +158,27 @@ describe("NoteCard 四段式撕纸手势", () => {
 
     expect(wrapper.emitted("detach")).toBeUndefined();
     expect(ghostEl()).toBeNull();
-    expect(snapSoundMock).not.toHaveBeenCalled();
     const flap = flapEl();
     expect(flap).not.toBeNull();
     expect(flap!.classList.contains("fold-settle")).toBe(true);
+    // 纸拍回纸面:播一次落回音
+    expect(settleSoundMock).toHaveBeenCalledTimes(1);
+    expect(tearSoundMock).not.toHaveBeenCalled();
   });
 
   it("拖动未及胶带:始终原位折角,不撕离不变占位", async () => {
     const wrapper = mountCard();
     const card = wrapper.find(".card");
     pointer("pointerdown", 300, 300, card.element);
-    // 向右拖 100px:折进一半(盖到胶带需 124.5px),未触发任何撕离条件
+    // 向右拖 100px:折痕(x=100)离胶带左缘(222px)尚远,未触发任何撕离条件
     pointer("pointermove", 400, 300, card.element);
     await wrapper.vm.$nextTick();
 
     expect(flapEl()).not.toBeNull();
     expect(ghostEl()).toBeNull();
     expect(card.classes()).not.toContain("placeholder");
+    // 折痕未及胶带:不播撕离音
+    expect(tearSoundMock).not.toHaveBeenCalled();
     // 折痕顶点不越出卡片
     const clip = (card.element as HTMLElement).style.clipPath;
     expect(clip.match(/-?\d+(\.\d+)?px/g)?.every((v) => {
@@ -166,11 +187,12 @@ describe("NoteCard 四段式撕纸手势", () => {
     })).toBe(true);
   });
 
-  it("向下拉扯(顺胶带粘着方向揭纸):拖够承诺距离立即撕离", async () => {
+  it("向下拉扯(上半卡):水平折痕扫过胶带所在顶缘,拖够承诺距离撕离", async () => {
     const wrapper = mountCard();
     const card = wrapper.find(".card");
     pointer("pointerdown", 300, 300, card.element);
-    // 正下方拖 50px:既非折痕线穿过胶带也非折面盖过,纯"向下揭"路径
+    // 正下方拖 50px:水平折痕从顶缘扫下,胶带(y∈[-7,8])整体落到被抓侧
+    // ——折痕已扫过胶带,不算"折面盖过"的提前撕离
     pointer("pointermove", 300, 350, card.element);
     await wrapper.vm.$nextTick();
 
@@ -180,28 +202,49 @@ describe("NoteCard 四段式撕纸手势", () => {
     expect(ghostEl()).not.toBeNull();
     expect(card.classes()).toContain("placeholder");
     expect(flapEl()).toBeNull();
-    // 撕离瞬间响一声撕纸音
-    expect(snapSoundMock).toHaveBeenCalledTimes(1);
+    // 撕离与撕离音同帧
+    expect(tearSoundMock).toHaveBeenCalledTimes(1);
   });
 
-  it("横向拖拽折面盖过胶带:拖动中即自动撕离起飞(第一卡片场景回归)", async () => {
+  it("横向拖到折痕本线触及胶带:拖动中即自动撕离起飞(第一卡片场景回归)", async () => {
     const wrapper = mountCard();
     const card = wrapper.find(".card");
     pointer("pointerdown", 300, 300, card.element);
     pointer("pointermove", 340, 326, card.element); // 先斜折角(Δ=(40,26))
     await wrapper.vm.$nextTick();
     expect(flapEl()).not.toBeNull();
-    // 横向拖到 Δ=(140,0):折进距离过半,折面(镜像像)已盖过胶带锚点 → 撕离
-    pointer("pointermove", 440, 300, card.element);
+    expect(creaseSoundMock).toHaveBeenCalledTimes(1);
+    // 横向拖到 Δ=(230,0):竖直折痕(x=230)穿过胶带矩形(x∈[222,276])→ 撕离;
+    // 旧逻辑折面盖过胶带(Δ≈125)即脱落,现在必须拖到折痕本线碰到胶带
+    pointer("pointermove", 530, 300, card.element);
     await wrapper.vm.$nextTick();
 
     const events = wrapper.emitted<[Record<string, number>]>("detach")!;
     expect(events).toHaveLength(1);
-    expect(events[0][0]).toEqual({ dx: 100, dy: 100, clientX: 440, clientY: 300 });
+    expect(events[0][0]).toEqual({ dx: 100, dy: 100, clientX: 530, clientY: 300 });
     expect(ghostEl()).not.toBeNull();
     expect(card.classes()).toContain("placeholder");
     expect(flapEl()).toBeNull();
-    expect(snapSoundMock).toHaveBeenCalledTimes(1);
+    // 折角持续加深不重播起折音;撕离时播一次撕离音
+    expect(creaseSoundMock).toHaveBeenCalledTimes(1);
+    expect(tearSoundMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("快速横向拖动一步跨过胶带:折痕已整体扫过,同样撕离不漏判", async () => {
+    const wrapper = mountCard();
+    const card = wrapper.find(".card");
+    pointer("pointerdown", 300, 300, card.element);
+    // 一步拖到 Δ=(290,0):竖直折痕(x=290)已越过胶带右缘(276),
+    // 穿越窗口被跳过,但胶带起步时在折痕前方 → 判"已扫过",撕离
+    pointer("pointermove", 590, 300, card.element);
+    await wrapper.vm.$nextTick();
+
+    const events = wrapper.emitted<[Record<string, number>]>("detach")!;
+    expect(events).toHaveLength(1);
+    expect(events[0][0]).toEqual({ dx: 100, dy: 100, clientX: 590, clientY: 300 });
+    expect(ghostEl()).not.toBeNull();
+    expect(card.classes()).toContain("placeholder");
+    expect(tearSoundMock).toHaveBeenCalledTimes(1);
   });
 
   it("折痕斜着拖到触及胶带:拖动中即自动撕离起飞(卷角由拖动距离截断衔接)", async () => {
@@ -219,15 +262,15 @@ describe("NoteCard 四段式撕纸手势", () => {
     expect(events).toHaveLength(1);
     // 载荷的落点 = 折痕触及胶带时的光标位置
     expect(events[0][0]).toEqual({ dx: 100, dy: 100, clientX: 420, clientY: 420 });
-    expect(snapSoundMock).toHaveBeenCalledTimes(1);
-    // 纸片已起飞,原位变虚线占位;卷角 = 此前拖动距离(47.7)截断至 28px
+    // 纸片已起飞,原位变虚线占位;卷角 = 触及胶带时的折痕腿长(169.7)截断至 48px
     const ghost = ghostEl();
     expect(ghost).not.toBeNull();
     expect(card.classes()).toContain("placeholder");
     expect(flapEl()).toBeNull();
     const curl = ghost!.querySelector<HTMLElement>(".g-curl");
     expect(curl).not.toBeNull();
-    expect(curl!.style.width).toBe("28px");
+    expect(curl!.style.width).toBe("48px");
+    expect(tearSoundMock).toHaveBeenCalledTimes(1);
     // 建窗交接前纸片保持在场(fly 切换在双帧之后,此处仍为 follow 态)
   });
 
@@ -264,14 +307,13 @@ describe("NoteCard 四段式撕纸手势", () => {
     expect(wrapper.find(".card").classes()).not.toContain("lifted");
   });
 
-  it("拖出按钮点击:同链路发出 detach 并生成纸片", async () => {
+  it("拖出按钮点击:同链路发出 detach 并生成纸片,播撕离音", async () => {
     const wrapper = mountCard();
     await wrapper.findAll(".icon-btn")[1].trigger("click");
     await wrapper.vm.$nextTick();
     const events = wrapper.emitted("detach")!;
     expect(events).toHaveLength(1);
     expect(ghostEl()).not.toBeNull();
-    // 按钮撕离同样响撕纸音
-    expect(snapSoundMock).toHaveBeenCalledTimes(1);
+    expect(tearSoundMock).toHaveBeenCalledTimes(1);
   });
 });

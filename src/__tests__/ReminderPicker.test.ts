@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import ReminderPicker from "../components/ReminderPicker.vue";
 import i18n from "../i18n";
+import { dateKey } from "../types";
 import { appLocale } from "../composables/useLocale";
 
 // 回归覆盖:提醒面板曾用原生 datetime-local,其格式与日历弹层跟随 WebView 系统语言,
@@ -128,8 +129,14 @@ describe("ReminderPicker 交互", () => {
 
     const events = wrapper.emitted<[number]>("set")!;
     const payload = events[events.length - 1][0];
-    // 提交期间跨分钟(偶发)时组件会按新当前分钟钳制,跳过精确断言避免时间依赖的偶发失败
-    if (new Date().getMinutes() === now.getMinutes()) {
+    // 时间依赖偶发守卫:
+    // 1) 提交期间跨分钟(偶发)时组件会按新当前分钟钳制,跳过精确断言;
+    // 2) 23:59→00:00 跨午夜时面板挂载后的"今天"与捕获的 now 差一天,
+    //    提交时刻落到未来而不触发钳制(payload 恰好 +24h)——同样跳过精确断言
+    if (
+      new Date().getMinutes() === now.getMinutes() &&
+      dateKey(now.getTime()) === dateKey(Date.now())
+    ) {
       expect(payload).toBe(new Date(now).setSeconds(0, 0));
     }
   });
@@ -148,9 +155,13 @@ describe("ReminderPicker 交互", () => {
 
     const events = wrapper.emitted<[number]>("set")!;
     const payload = events[events.length - 1][0];
-    // 整分钟前的一刻必然触发钳制:结果落在 [提交前时刻+60s, 断言时时刻+60s] 区间内
-    expect(payload).toBeGreaterThanOrEqual(before + 60_000);
-    expect(payload).toBeLessThanOrEqual(Date.now() + 60_000);
+    // 整分钟前的一刻必然触发钳制:结果落在 [提交前时刻+60s, 断言时时刻+60s] 区间内。
+    // 23:59→00:00 跨午夜时"上一分钟"落在昨天:面板按今天日期 + 昨天时分构造出的
+    // 是未来时刻,钳制不触发(payload 恰好 +24h)——此时跳过区间断言避免日历翻日偶发
+    if (dateKey(before) === dateKey(Date.now())) {
+      expect(payload).toBeGreaterThanOrEqual(before + 60_000);
+      expect(payload).toBeLessThanOrEqual(Date.now() + 60_000);
+    }
   });
 
   it("向上弹出时面板底部与铃铛的间距和向下弹一致(6px)", async () => {
@@ -179,6 +190,8 @@ describe("ReminderPicker popup 模式(独立便签窗口)", () => {
   const shared = vi.hoisted(() => ({
     invokeMock: vi.fn(),
     movedHandler: null as (() => void) | null,
+    // 已落定的注销句柄被调用的次数(卸载竞态回归用)
+    movedUnlistenCalls: 0,
   }));
   vi.mock("@tauri-apps/api/core", () => ({ invoke: shared.invokeMock }));
   vi.mock("@tauri-apps/api/window", () => ({
@@ -189,7 +202,9 @@ describe("ReminderPicker popup 模式(独立便签窗口)", () => {
       innerPosition: async () => ({ x: 100, y: 200 }),
       onMoved: async (h: () => void) => {
         shared.movedHandler = h;
-        return () => {};
+        return () => {
+          shared.movedUnlistenCalls += 1;
+        };
       },
     }),
   }));
@@ -207,6 +222,7 @@ describe("ReminderPicker popup 模式(独立便签窗口)", () => {
   beforeEach(() => {
     shared.invokeMock.mockReset().mockResolvedValue(undefined);
     shared.movedHandler = null;
+    shared.movedUnlistenCalls = 0;
   });
 
   it("点击铃铛不渲染本地浮层,而是按内容区原点换算屏幕坐标请求后端建弹窗", async () => {
@@ -256,6 +272,18 @@ describe("ReminderPicker popup 模式(独立便签窗口)", () => {
       expect(shared.invokeMock).toHaveBeenCalledWith("close_reminder_popups"),
     );
     wrapper.unmount();
+    // 正常路径:监听已落定后卸载,注销句柄被调用一次
+    expect(shared.movedUnlistenCalls).toBe(1);
+  });
+
+  it("卸载早于监听注册落定:句柄解析后立即注销,不悬挂监听", async () => {
+    // 回归:勾选/删除待办项会即时 v-if 卸载本组件,此刻 onMoved 的 promise 可能
+    // 尚未落定——注销句柄若只赋值不执行,监听器悬挂,窗口每次移动都白发清扫 IPC
+    const wrapper = mountPopupPicker();
+    // 不 flush 微任务直接卸载:注销句柄必然尚未赋值
+    wrapper.unmount();
+    await flushPromises();
+    expect(shared.movedUnlistenCalls).toBe(1);
   });
 
   it("panel 模式(默认)不请求后端建窗", async () => {
