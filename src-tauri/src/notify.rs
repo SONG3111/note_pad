@@ -39,6 +39,9 @@ pub fn send(app: &tauri::AppHandle, title: &str, body: &str) -> Result<(), Strin
     Toast::new(aumid.as_str())
         .title(title)
         .text1(body)
+        // 静音系统提示音:不写 <audio> 节点时 Windows 会播默认通知音,
+        // 提醒音由 sound::play_chime 负责,这里只负责视觉通知
+        .sound(None)
         .show()
         .map_err(|e| e.to_string())
 }
